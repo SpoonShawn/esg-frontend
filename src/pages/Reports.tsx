@@ -22,6 +22,15 @@ const Reports = () => {
   const [reportType, setReportType] = useState<'pdf' | 'html'>('pdf');
   const [htmlReportContent, setHtmlReportContent] = useState<string | null>(null);
   const [showHtmlReport, setShowHtmlReport] = useState(false);
+
+  // Chapter selection
+  const [availableChapters, setAvailableChapters] = useState<any>(null);
+  const [selectedChapters, setSelectedChapters] = useState<string[]>([
+    'executive_summary', 'about_report', 'about_us',
+    'sustainability_targets', 'emissions_disclosure',
+    'ai_recommendations', 'performance_tables'
+  ]);
+
   // Get current date and year for defaults
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -40,8 +49,31 @@ const Reports = () => {
   useEffect(() => {
     if (currentCompany?.id) {
       loadCompanyDetails();
+      loadAvailableChapters();
     }
   }, [currentCompany?.id]);
+
+  const loadAvailableChapters = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/reports/chapters'));
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableChapters(data);
+      }
+    } catch (error) {
+      console.error('Error loading chapters:', error);
+    }
+  };
+
+  const toggleChapter = (chapterId: string) => {
+    setSelectedChapters(prev =>
+      prev.includes(chapterId)
+        ? prev.filter(id => id !== chapterId)
+        : [...prev, chapterId]
+    );
+  };
+
+  const isChapterSelected = (chapterId: string) => selectedChapters.includes(chapterId);
 
   const loadCompanyDetails = async () => {
     if (!currentCompany?.id) return;
@@ -168,9 +200,10 @@ const Reports = () => {
     setIsModalOpen(false);
     
     try {
-      // Call backend API to generate report
+      // Call backend API to generate report with selected chapters
+      const chaptersParam = selectedChapters.join(',');
       const response = await fetch(
-        buildApiUrl(`/api/reports/generate?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}`),
+        buildApiUrl(`/api/reports/generate?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}&chapters=${chaptersParam}`),
         {
           method: 'GET',
         }
@@ -229,9 +262,10 @@ const Reports = () => {
     setIsModalOpen(false);
 
     try {
-      // Call backend API to generate HTML report
+      // Call backend API to generate HTML report with selected chapters
+      const chaptersParam = selectedChapters.join(',');
       const response = await fetch(
-        buildApiUrl(`/api/reports/generate-html?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}`),
+        buildApiUrl(`/api/reports/generate-html?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}&chapters=${chaptersParam}`),
         {
           method: 'GET',
         }
@@ -427,6 +461,41 @@ const Reports = () => {
                 <p><strong>As Of Date:</strong> Report publication date</p>
                 <p><strong>Financial Year:</strong> Main reporting year</p>
               </div>
+
+              {/* Chapter Selection */}
+              {availableChapters && (
+                <div className="space-y-3 border-t pt-4">
+                  <Label className="text-base font-semibold">Customize Report Content</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Select which chapters to include in your report
+                  </p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {Object.entries(availableChapters.available_chapters).map(([id, name]) => (
+                      <div key={id} className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id={id}
+                          checked={isChapterSelected(id)}
+                          onChange={() => toggleChapter(id)}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        <label
+                          htmlFor={id}
+                          className="text-sm cursor-pointer flex-1"
+                        >
+                          {name as string}
+                        </label>
+                        {availableChapters.default_chapters.includes(id) && (
+                          <Badge variant="secondary" className="text-xs">Default</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedChapters.length} chapters selected
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsModalOpen(false)}>
