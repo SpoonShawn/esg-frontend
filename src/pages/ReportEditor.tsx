@@ -143,7 +143,12 @@ const ReportEditor = () => {
   const [history, setHistory] = useState<ReportComponent[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [importedFromReports, setImportedFromReports] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [componentsPerPage] = useState(6);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
 
   // Layout state
   const [layouts, setLayouts] = useState<any>({
@@ -170,9 +175,123 @@ const ReportEditor = () => {
         parseAndImportHtml(importedHtml);
         // Clear the imported HTML from sessionStorage
         sessionStorage.removeItem('editorImportHtml');
+      } else {
+        // Try to restore from localStorage (auto-save)
+        restoreFromStorage();
       }
     }
   }, [currentCompany?.id]);
+
+  // Auto-save components when they change
+  useEffect(() => {
+    if (components.length > 0) {
+      setHasUnsavedChanges(true);
+
+      // Clear previous timer
+      if (autoSaveRef.current) {
+        clearTimeout(autoSaveRef.current);
+      }
+
+      // Set new timer for auto-save (debounce 2 seconds)
+      autoSaveRef.current = setTimeout(() => {
+        saveToStorage();
+      }, 2000);
+    }
+
+    return () => {
+      if (autoSaveRef.current) {
+        clearTimeout(autoSaveRef.current);
+      }
+    };
+  }, [components]);
+
+  // Save to localStorage
+  const saveToStorage = () => {
+    if (!currentCompany?.id) return;
+
+    try {
+      const storageKey = `editor_draft_${currentCompany.id}`;
+      const data = {
+        components,
+        theme,
+        currentPage,
+        importedFromReports,
+        lastSaved: new Date().toISOString()
+      };
+      localStorage.setItem(storageKey, JSON.stringify(data));
+      setLastSavedTime(new Date());
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('Failed to save to storage:', error);
+    }
+  };
+
+  // Restore from localStorage
+  const restoreFromStorage = () => {
+    if (!currentCompany?.id) return;
+
+    try {
+      const storageKey = `editor_draft_${currentCompany.id}`;
+      const savedData = localStorage.getItem(storageKey);
+
+      if (savedData) {
+        const data = JSON.parse(savedData);
+        setComponents(data.components || []);
+        setCurrentPage(data.currentPage || 1);
+        setImportedFromReports(data.importedFromReports || false);
+
+        if (data.lastSaved) {
+          setLastSavedTime(new Date(data.lastSaved));
+        }
+
+        // Update layouts
+        const newLayouts = (data.components || []).map((comp: ReportComponent, i: number) => ({
+          i: comp.id,
+          x: (i % 2) * 6,
+          y: Math.floor(i / 2) * 4,
+          w: 6,
+          h: comp.type === 'chart' || comp.type === 'table' ? 6 : 4,
+          minW: 3,
+          minH: 2
+        }));
+        setLayouts({ lg: newLayouts });
+
+        toast.success(`Restored draft from ${data.lastSaved ? new Date(data.lastSaved).toLocaleString() : 'previous session'}`);
+      }
+    } catch (error) {
+      console.error('Failed to restore from storage:', error);
+    }
+  };
+
+  // Clear storage
+  const clearStorage = () => {
+    if (!currentCompany?.id) return;
+
+    try {
+      const storageKey = `editor_draft_${currentCompany.id}`;
+      localStorage.removeItem(storageKey);
+      setLastSavedTime(null);
+      toast.success('Draft cleared');
+    } catch (error) {
+      console.error('Failed to clear storage:', error);
+    }
+  };
+
+  // Pagination
+  const totalPages = Math.ceil(components.length / componentsPerPage);
+  const indexOfLastComponent = currentPage * componentsPerPage;
+  const indexOfFirstComponent = indexOfLastComponent - componentsPerPage;
+  const currentComponents = components.slice(indexOfFirstComponent, indexOfLastComponent);
+
+  const goToPage = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setSelectedId(null); // Clear selection when changing pages
+    }
+  };
+
+  const nextPage = () => goToPage(currentPage + 1);
+  const prevPage = () => goToPage(currentPage - 1);
 
   // Save to history when components change
   useEffect(() => {
@@ -647,11 +766,25 @@ const ReportEditor = () => {
                 {importedFromReports ? 'Edit Generated Report' : 'Visual Report Editor'}
               </h1>
             </div>
-            <p className="text-muted-foreground">
-              {importedFromReports
-                ? `Customize your ESG report (${components.length} components imported)`
-                : 'Drag, drop, and customize your ESG report'}
-            </p>
+            <div className="flex items-center gap-3 mb-2">
+              <p className="text-muted-foreground">
+                {importedFromReports
+                  ? `Customize your ESG report (${components.length} components imported)`
+                  : 'Drag, drop, and customize your ESG report'}
+              </p>
+              {lastSavedTime && (
+                <span className="text-xs text-green-600 flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                  Saved {lastSavedTime.toLocaleTimeString()}
+                </span>
+              )}
+              {hasUnsavedChanges && (
+                <span className="text-xs text-orange-600 flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 bg-orange-500 rounded-full"></span>
+                  Saving...
+                </span>
+              )}
+            </div>
             {importedFromReports && (
               <div className="mt-2 inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">
                 <Sparkles className="h-3 w-3" />
@@ -660,6 +793,9 @@ const ReportEditor = () => {
             )}
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
+            <Button variant="outline" onClick={clearStorage} disabled={!lastSavedTime} title="Clear draft">
+              <Trash2 className="h-4 w-4" />
+            </Button>
             <Button variant="outline" onClick={undo} disabled={historyIndex <= 0}>
               <Undo className="h-4 w-4" />
             </Button>
@@ -682,9 +818,9 @@ const ReportEditor = () => {
               <Download className="h-4 w-4 mr-2" />
               PDF
             </Button>
-            <Button onClick={() => setShowTemplateDialog(true)}>
+            <Button onClick={saveToStorage}>
               <Save className="h-4 w-4 mr-2" />
-              Save
+              Save Now
             </Button>
           </div>
         </div>
@@ -888,15 +1024,58 @@ const ReportEditor = () => {
             <Card className="lg:col-span-2">
               <CardHeader>
                 <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg">Canvas</CardTitle>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
-                      <Undo className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Redo className="h-4 w-4" />
-                    </Button>
+                  <div>
+                    <CardTitle className="text-lg">Canvas</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Page {currentPage} of {totalPages || 1} • {currentComponents.length} components on this page
+                    </p>
                   </div>
+                  {totalPages > 1 && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={prevPage}
+                        disabled={currentPage === 1}
+                      >
+                        ← Previous
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                          let pageNum;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={currentPage === pageNum ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => goToPage(pageNum)}
+                              className="w-8 h-8 p-0"
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={nextPage}
+                        disabled={currentPage === totalPages}
+                      >
+                        Next →
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -913,13 +1092,23 @@ const ReportEditor = () => {
                   >
                     <ResponsiveGridLayout
                       className="layout"
-                      layouts={layouts}
+                      layouts={{
+                        lg: currentComponents.map((comp, i) => ({
+                          i: comp.id,
+                          x: (i % 2) * 6,
+                          y: Math.floor(i / 2) * 4,
+                          w: 6,
+                          h: comp.type === 'chart' || comp.type === 'table' ? 6 : 4,
+                          minW: 3,
+                          minH: 2
+                        }))
+                      }}
                       onLayoutChange={handleLayoutChange}
                       isDraggable={!previewMode}
                       isResizable={!previewMode}
                       useCSSTransform={true}
                     >
-                      {components.map((comp) => (
+                      {currentComponents.map((comp) => (
                         <div
                           key={comp.id}
                           onClick={() => setSelectedId(comp.id)}
