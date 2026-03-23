@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Layout } from "@/components/Layout";
-import { FileText, AlertTriangle, CheckCircle, Globe } from "lucide-react";
+import { FileText, AlertTriangle, CheckCircle, Globe, Download, Printer, Edit3 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
 import { buildApiUrl } from "@/lib/api";
@@ -15,6 +16,8 @@ import { buildApiUrl } from "@/lib/api";
 const Reports = () => {
   const { getCurrentCompany } = useAuth();
   const currentCompany = getCurrentCompany();
+  const navigate = useNavigate();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingHtml, setIsGeneratingHtml] = useState(false);
@@ -30,6 +33,14 @@ const Reports = () => {
     'sustainability_targets', 'emissions_disclosure',
     'ai_recommendations', 'performance_tables'
   ]);
+
+  // Theme customization
+  const [availableThemes, setAvailableThemes] = useState<any>(null);
+  const [selectedTheme, setSelectedTheme] = useState<string>('corporate_blue');
+  const [headingFont, setHeadingFont] = useState<string>('times_new_roman');
+  const [bodyFont, setBodyFont] = useState<string>('times_new_roman');
+  const [customPrimaryColor, setCustomPrimaryColor] = useState<string>('');
+  const [customAccentColor, setCustomAccentColor] = useState<string>('');
 
   // Get current date and year for defaults
   const today = new Date();
@@ -50,8 +61,21 @@ const Reports = () => {
     if (currentCompany?.id) {
       loadCompanyDetails();
       loadAvailableChapters();
+      loadAvailableThemes();
     }
   }, [currentCompany?.id]);
+
+  const loadAvailableThemes = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/reports/themes'));
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableThemes(data);
+      }
+    } catch (error) {
+      console.error('Error loading themes:', error);
+    }
+  };
 
   const loadAvailableChapters = async () => {
     try {
@@ -200,10 +224,24 @@ const Reports = () => {
     setIsModalOpen(false);
     
     try {
-      // Call backend API to generate report with selected chapters
+      // Call backend API to generate PDF report with selected chapters and theme
       const chaptersParam = selectedChapters.join(',');
+      const params = new URLSearchParams({
+        company_id: currentCompany?.id.toString(),
+        as_of_date: asOfDate,
+        fy_date: fyDate,
+        chapters: chaptersParam,
+        theme: selectedTheme,
+        heading_font: headingFont,
+        body_font: bodyFont,
+      });
+
+      // Add custom colors if provided
+      if (customPrimaryColor) params.append('custom_primary_color', customPrimaryColor);
+      if (customAccentColor) params.append('custom_accent_color', customAccentColor);
+
       const response = await fetch(
-        buildApiUrl(`/api/reports/generate?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}&chapters=${chaptersParam}`),
+        buildApiUrl(`/api/reports/generate?${params.toString()}`),
         {
           method: 'GET',
         }
@@ -262,10 +300,24 @@ const Reports = () => {
     setIsModalOpen(false);
 
     try {
-      // Call backend API to generate HTML report with selected chapters
+      // Call backend API to generate HTML report with selected chapters and theme
       const chaptersParam = selectedChapters.join(',');
+      const params = new URLSearchParams({
+        company_id: currentCompany?.id.toString(),
+        as_of_date: asOfDate,
+        fy_date: fyDate,
+        chapters: chaptersParam,
+        theme: selectedTheme,
+        heading_font: headingFont,
+        body_font: bodyFont,
+      });
+
+      // Add custom colors if provided
+      if (customPrimaryColor) params.append('custom_primary_color', customPrimaryColor);
+      if (customAccentColor) params.append('custom_accent_color', customAccentColor);
+
       const response = await fetch(
-        buildApiUrl(`/api/reports/generate-html?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}&chapters=${chaptersParam}`),
+        buildApiUrl(`/api/reports/generate-html?${params.toString()}`),
         {
           method: 'GET',
         }
@@ -290,6 +342,41 @@ const Reports = () => {
       console.error("Error generating HTML report:", error);
     } finally {
       setIsGeneratingHtml(false);
+    }
+  };
+
+  const printToPdf = () => {
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      try {
+        // Trigger browser print dialog
+        iframeRef.current.contentWindow.print();
+
+        toast.info("Printing dialog opened. Select 'Save as PDF' to download.");
+      } catch (error) {
+        console.error("Error opening print dialog:", error);
+        toast.error("Failed to open print dialog. Please try using Ctrl/Cmd+P manually.");
+      }
+    }
+  };
+
+  const openInEditor = () => {
+    // Store the HTML content in sessionStorage for the editor to retrieve
+    if (htmlReportContent) {
+      sessionStorage.setItem('editorImportHtml', htmlReportContent);
+      sessionStorage.setItem('editorImportSource', 'report');
+      sessionStorage.setItem('editorImportConfig', JSON.stringify({
+        asOfDate,
+        fyDate,
+        selectedTheme,
+        selectedChapters,
+        companyData: companyDetails
+      }));
+
+      // Close the dialog and navigate to editor
+      setShowHtmlReport(false);
+      navigate('/reports/editor');
+
+      toast.success("Report opened in editor. You can now customize it!");
     }
   };
 
@@ -429,14 +516,14 @@ const Reports = () => {
 
         {/* Report Dates Modal */}
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Generate {reportType.toUpperCase()} Report</DialogTitle>
               <DialogDescription>
-                Choose the key dates for your {reportType === 'pdf' ? 'PDF' : 'HTML'} ESG report.
+                Choose the key dates and customize your {reportType === 'pdf' ? 'PDF' : 'HTML'} ESG report.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-5 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="asOfDate">As Of Date (DD/MM/YYYY)</Label>
@@ -445,6 +532,7 @@ const Reports = () => {
                     placeholder="30/08/2025"
                     value={asOfDate}
                     onChange={(e) => setAsOfDate(e.target.value)}
+                    className="h-10"
                   />
                 </div>
                 <div className="space-y-2">
@@ -454,10 +542,11 @@ const Reports = () => {
                     placeholder="2025"
                     value={fyDate}
                     onChange={(e) => setFyDate(e.target.value)}
+                    className="h-10"
                   />
                 </div>
               </div>
-              <div className="text-sm text-muted-foreground">
+              <div className="text-xs text-muted-foreground bg-secondary/30 p-2 rounded">
                 <p><strong>As Of Date:</strong> Report publication date</p>
                 <p><strong>Financial Year:</strong> Main reporting year</p>
               </div>
@@ -469,31 +558,146 @@ const Reports = () => {
                   <p className="text-sm text-muted-foreground">
                     Select which chapters to include in your report
                   </p>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
                     {Object.entries(availableChapters.available_chapters).map(([id, name]) => (
-                      <div key={id} className="flex items-center space-x-2">
+                      <div key={id} className="flex items-center space-x-2 p-2 rounded hover:bg-secondary/50">
                         <input
                           type="checkbox"
                           id={id}
                           checked={isChapterSelected(id)}
                           onChange={() => toggleChapter(id)}
-                          className="w-4 h-4 rounded border-gray-300"
+                          className="w-4 h-4 rounded border-gray-300 flex-shrink-0"
                         />
                         <label
                           htmlFor={id}
-                          className="text-sm cursor-pointer flex-1"
+                          className="text-sm cursor-pointer flex-1 truncate"
+                          title={name as string}
                         >
                           {name as string}
                         </label>
                         {availableChapters.default_chapters.includes(id) && (
-                          <Badge variant="secondary" className="text-xs">Default</Badge>
+                          <Badge variant="secondary" className="text-xs flex-shrink-0">Default</Badge>
                         )}
                       </div>
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {selectedChapters.length} chapters selected
+                    {selectedChapters.length} of {Object.keys(availableChapters.available_chapters).length} chapters selected
                   </p>
+                </div>
+              )}
+
+              {/* Theme Customization - Only for HTML reports */}
+              {reportType === 'html' && availableThemes && (
+                <div className="space-y-3 border-t pt-4">
+                  <Label className="text-base font-semibold">Customize Report Style</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Personalize your report's appearance
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Theme Selection */}
+                    <div className="space-y-1">
+                      <Label htmlFor="theme" className="text-sm">Theme</Label>
+                      <Select value={selectedTheme} onValueChange={setSelectedTheme}>
+                        <SelectTrigger id="theme" className="h-9">
+                          <SelectValue placeholder="Select theme" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.values(availableThemes.themes).map((theme: any) => (
+                            <SelectItem key={theme.id} value={theme.id}>
+                              <span className="mr-2">{theme.preview}</span>
+                              {theme.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Font Selection - Compact */}
+                    <div className="space-y-1">
+                      <Label htmlFor="headingFont" className="text-sm">Fonts</Label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <Label htmlFor="headingFont" className="text-xs text-muted-foreground mb-1 block">标题 Heading</Label>
+                          <Select value={headingFont} onValueChange={setHeadingFont}>
+                            <SelectTrigger id="headingFont" className="h-9">
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(availableThemes.fonts).map(([fontId, font]: [string, any]) => (
+                                <SelectItem key={fontId} value={fontId}>
+                                  {font.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1">
+                          <Label htmlFor="bodyFont" className="text-xs text-muted-foreground mb-1 block">正文 Body</Label>
+                          <Select value={bodyFont} onValueChange={setBodyFont}>
+                            <SelectTrigger id="bodyFont" className="h-9">
+                              <SelectValue placeholder="Select" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(availableThemes.fonts).map(([fontId, font]: [string, any]) => (
+                                <SelectItem key={fontId} value={fontId}>
+                                  {font.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Custom Colors - Compact */}
+                    <div className="space-y-1">
+                      <Label className="text-sm">Custom Colors</Label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <Label htmlFor="primaryColor" className="text-xs text-muted-foreground mb-1 block">主色 Primary</Label>
+                          <div className="flex items-center gap-1">
+                            <Input
+                              id="primaryColor"
+                              type="color"
+                              value={customPrimaryColor}
+                              onChange={(e) => setCustomPrimaryColor(e.target.value)}
+                              className="w-8 h-9 p-0.5 cursor-pointer rounded flex-shrink-0"
+                              title="Primary color - Main headings and borders"
+                            />
+                            <Input
+                              type="text"
+                              placeholder="#1e40af"
+                              value={customPrimaryColor}
+                              onChange={(e) => setCustomPrimaryColor(e.target.value)}
+                              className="flex-1 h-9 text-xs"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <Label htmlFor="accentColor" className="text-xs text-muted-foreground mb-1 block">强调色 Accent</Label>
+                          <div className="flex items-center gap-1">
+                            <Input
+                              id="accentColor"
+                              type="color"
+                              value={customAccentColor}
+                              onChange={(e) => setCustomAccentColor(e.target.value)}
+                              className="w-8 h-9 p-0.5 cursor-pointer rounded flex-shrink-0"
+                              title="Accent color - Highlights and progress bars"
+                            />
+                            <Input
+                              type="text"
+                              placeholder="#3b82f6"
+                              value={customAccentColor}
+                              onChange={(e) => setCustomAccentColor(e.target.value)}
+                              className="flex-1 h-9 text-xs"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -512,20 +716,58 @@ const Reports = () => {
         <Dialog open={showHtmlReport} onOpenChange={setShowHtmlReport}>
           <DialogContent className="max-w-5xl h-[90vh] p-0">
             <div className="h-full flex flex-col">
-              <DialogHeader className="px-6 py-4 border-b">
-                <DialogTitle>ESG Sustainability Report</DialogTitle>
-                <DialogDescription>
-                  Interactive HTML report preview
-                </DialogDescription>
+              <DialogHeader className="px-6 py-4 border-b flex flex-row items-center justify-between">
+                <div>
+                  <DialogTitle>ESG Sustainability Report</DialogTitle>
+                  <DialogDescription>
+                    Interactive HTML report preview
+                  </DialogDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={openInEditor}
+                    variant="default"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                    Edit in Editor
+                  </Button>
+                  <Button
+                    onClick={printToPdf}
+                    variant="outline"
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Download PDF
+                  </Button>
+                  <Button
+                    onClick={() => setShowHtmlReport(false)}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Close
+                  </Button>
+                </div>
               </DialogHeader>
               <div className="flex-1 overflow-auto">
                 {htmlReportContent && (
                   <iframe
+                    ref={iframeRef}
                     srcDoc={htmlReportContent}
                     className="w-full h-full border-0"
                     title="ESG Report"
                   />
                 )}
+              </div>
+              <div className="px-6 py-3 border-t bg-secondary/30">
+                <p className="text-xs text-muted-foreground mb-2">
+                  💡 <strong>Tip:</strong> Click "Download PDF" and select "Save as PDF" in the print dialog.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  ⚠️ <strong>Important:</strong> Uncheck "Headers and Footers" (页眉和页脚) in the print settings to remove dates, page numbers, and URL from your PDF.
+                </p>
               </div>
             </div>
           </DialogContent>

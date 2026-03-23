@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Activities from "./pages/Activities";
 import Analytics from "./pages/Analytics";
 import Reports from "./pages/Reports";
+import ReportEditor from "./pages/ReportEditor";
 import AI from "./pages/AI";
 import Admin from "./pages/Admin";
 import CompanyInfo from "./pages/CompanyInfo";
@@ -31,6 +32,7 @@ const App = () => (
           <Route path="/activities" element={<ProtectedRoute><Activities /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/reports/editor" element={<ProtectedRoute><ReportEditor /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AI /></ProtectedRoute>} />
           <Route path="/company-info" element={<ProtectedRoute><CompanyInfo /></ProtectedRoute>} />
           <Route path="/contact" element={<ProtectedRoute><Contact /></ProtectedRoute>} />

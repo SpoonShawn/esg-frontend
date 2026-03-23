@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { 
-  BarChart3, 
-  Activity, 
-  FileText, 
-  LogOut, 
+import {
+  BarChart3,
+  Activity,
+  FileText,
+  LogOut,
   Leaf,
   Menu,
   X,
   Brain,
   Building2,
   TrendingUp,
-  Mail
+  Mail,
+  Edit3
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
@@ -33,6 +34,7 @@ export const Layout = ({ children }: LayoutProps) => {
     { name: "Activities", href: "/activities", icon: Activity },
     { name: "Analytics", href: "/analytics", icon: TrendingUp },
     { name: "Reports", href: "/reports", icon: FileText },
+    { name: "Report Editor", href: "/reports/editor", icon: Edit3 },
     { name: "AI", href: "/ai", icon: Brain },
   ];
 
