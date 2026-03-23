@@ -121,9 +121,16 @@ const Reports = () => {
       loadCompanyDetails();
       loadAvailableChapters();
       loadAvailableThemes();
+      // loadSavedReports(); // Temporarily disabled to prevent infinite loop
+    }
+  }, [currentCompany?.id]);
+
+  // Load saved reports when company changes (separate effect)
+  useEffect(() => {
+    if (currentCompany?.id) {
       loadSavedReports();
     }
-  }, [currentCompany?.id, loadSavedReports]);
+  }, [currentCompany?.id]);
 
   const loadAvailableThemes = async () => {
     try {
