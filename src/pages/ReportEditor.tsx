@@ -36,6 +36,185 @@ interface ReportTheme {
   styles: Record<string, any>;
 }
 
+// Editable Table Component
+interface EditableTableProps {
+  data: {
+    headers: string[];
+    rows: string[][];
+  };
+  onChange: (data: any) => void;
+  style?: React.CSSProperties;
+}
+
+const EditableTable: React.FC<EditableTableProps> = ({ data, onChange, style }) => {
+  const [editingCell, setEditingCell] = useState<{ rowIndex: number; cellIndex: number } | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const handleCellClick = (rowIndex: number, cellIndex: number, value: string) => {
+    setEditingCell({ rowIndex, cellIndex });
+    setEditValue(value);
+  };
+
+  const handleCellChange = (value: string) => {
+    setEditValue(value);
+  };
+
+  const handleCellBlur = () => {
+    if (editingCell) {
+      const newData = { ...data };
+      if (editingCell.rowIndex === -1) {
+        // Editing header
+        newData.headers[editingCell.cellIndex] = editValue;
+      } else {
+        // Editing row cell
+        newData.rows[editingCell.rowIndex][editingCell.cellIndex] = editValue;
+      }
+      onChange(newData);
+      setEditingCell(null);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleCellBlur();
+    } else if (e.key === 'Escape') {
+      setEditingCell(null);
+    }
+  };
+
+  const addRow = () => {
+    const newRow = new Array(data.headers.length).fill('');
+    onChange({
+      ...data,
+      rows: [...data.rows, newRow]
+    });
+  };
+
+  const deleteRow = (rowIndex: number) => {
+    const newRows = data.rows.filter((_, i) => i !== rowIndex);
+    onChange({
+      ...data,
+      rows: newRows
+    });
+  };
+
+  const addColumn = () => {
+    const newHeader = `Column ${data.headers.length + 1}`;
+    onChange({
+      headers: [...data.headers, newHeader],
+      rows: data.rows.map(row => [...row, ''])
+    });
+  };
+
+  return (
+    <div style={style} className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Table className="h-5 w-5 text-green-600" />
+          <span className="text-sm text-green-700 font-medium">
+            Click any cell to edit • Enter to save
+          </span>
+        </div>
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={addColumn}
+            className="h-7 px-2 text-xs"
+          >
+            + Column
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={addRow}
+            className="h-7 px-2 text-xs"
+          >
+            + Row
+          </Button>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b-2 border-green-200">
+              {data.headers.map((header, cellIndex) => (
+                <th
+                  key={cellIndex}
+                  className="border border-green-100 py-2 px-3 bg-green-50 font-semibold text-gray-700 cursor-pointer hover:bg-green-100 transition-colors"
+                  onClick={() => handleCellClick(-1, cellIndex, header)}
+                >
+                  {editingCell?.rowIndex === -1 && editingCell?.cellIndex === cellIndex ? (
+                    <input
+                      type="text"
+                      value={editValue}
+                      onChange={(e) => handleCellChange(e.target.value)}
+                      onBlur={handleCellBlur}
+                      onKeyDown={handleKeyPress}
+                      className="w-full bg-white border border-green-300 rounded px-1 py-0.5 text-sm"
+                      autoFocus
+                    />
+                  ) : (
+                    <span className="flex items-center justify-between">
+                      {header}
+                      <span className="ml-2 text-xs text-gray-400">✏️</span>
+                    </span>
+                  )}
+                </th>
+              ))}
+              <th className="border border-green-100 py-2 px-2 bg-green-50 w-10">
+                <span className="text-xs text-gray-400">#</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((row, rowIndex) => (
+              <tr key={rowIndex} className="border-b border-green-100 hover:bg-green-50/50">
+                {row.map((cell, cellIndex) => (
+                  <td
+                    key={cellIndex}
+                    className="border border-green-100 py-2 px-3 cursor-pointer hover:bg-white transition-colors"
+                    onClick={() => handleCellClick(rowIndex, cellIndex, cell)}
+                  >
+                    {editingCell?.rowIndex === rowIndex && editingCell?.cellIndex === cellIndex ? (
+                      <input
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => handleCellChange(e.target.value)}
+                        onBlur={handleCellBlur}
+                        onKeyDown={handleKeyPress}
+                        className="w-full bg-white border border-green-300 rounded px-1 py-0.5 text-sm"
+                        autoFocus
+                      />
+                    ) : (
+                      <span>{cell || <span className="text-gray-300">Click to edit</span>}</span>
+                    )}
+                  </td>
+                ))}
+                <td className="border border-green-100 py-2 px-2 text-center">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => deleteRow(rowIndex)}
+                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {data.rows.length === 0 && (
+        <div className="text-center py-4 text-sm text-gray-500">
+          No rows yet. Click "+ Row" to add data.
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Sortable component wrapper
 function SortableComponent({
   id,
@@ -337,59 +516,114 @@ const ReportEditor = () => {
     const importedComponents: ReportComponent[] = [];
     let componentIndex = 0;
 
+    // Extract theme from HTML if available
+    const bodyStyle = doc.body.getAttribute('style') || '';
+    const bgColorMatch = bodyStyle.match(/background-color:\s*([^;]+)/);
+    const primaryColor = bgColorMatch ? bgColorMatch[1].trim() : '#ffffff';
+
     // Find all major sections in the HTML
     const container = doc.querySelector('.container') || doc.body;
 
-    // Process child elements
-    Array.from(container.children).forEach((element, index) => {
+    // Process child elements - but skip wrapper divs
+    const processElement = (element: Element, depth = 0): void => {
+      if (depth > 2) return; // Limit depth to avoid too many nested elements
+
       const htmlElement = element as HTMLElement;
       const tagName = htmlElement.tagName.toLowerCase();
       const text = htmlElement.textContent || '';
-      const style = window.getComputedStyle(htmlElement);
+      const classList = htmlElement.classList;
 
-      // Skip empty elements
-      if (!text.trim() && tagName !== 'img') return;
+      // Skip wrapper divs and empty elements
+      if (classList.contains('container') || classList.contains('component') || (!text.trim() && tagName !== 'img')) {
+        Array.from(element.children).forEach(child => processElement(child, depth + 1));
+        return;
+      }
+
+      // Skip if this is just a wrapper for actual content
+      if (tagName === 'div' && element.children.length > 0 && !text.trim()) {
+        Array.from(element.children).forEach(child => processElement(child, depth + 1));
+        return;
+      }
 
       let componentType: ReportComponent['type'] = 'text';
       let componentContent = text;
+      let componentData: any = undefined;
+
+      // Get computed styles from inline style
+      const inlineStyle = htmlElement.getAttribute('style') || '';
 
       // Detect component type based on HTML structure and content
       if (tagName === 'h1') {
         componentType = 'header';
-        componentContent = htmlElement.textContent || 'Report Title';
+        componentContent = htmlElement.textContent?.trim() || 'Report Title';
       } else if (tagName === 'h2' || tagName === 'h3') {
         componentType = 'text';
-        componentContent = htmlElement.textContent || 'Section Title';
+        componentContent = htmlElement.textContent?.trim() || 'Section Title';
       } else if (tagName === 'p') {
         componentType = 'text';
-        componentContent = htmlElement.textContent || 'Paragraph content';
-      } else if (htmlElement.querySelector('table')) {
+        componentContent = htmlElement.textContent?.trim() || 'Paragraph content';
+      } else if (tagName === 'table' || htmlElement.querySelector('table')) {
         componentType = 'table';
-        componentContent = 'Data Table';
-      } else if (htmlElement.classList.contains('chart') || text.includes('Chart') || text.includes('Emissions')) {
+        const table = tagName === 'table' ? htmlElement : htmlElement.querySelector('table');
+        if (table) {
+          const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent?.trim() || '');
+          const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
+            Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || '')
+          );
+          componentData = { headers, rows };
+        }
+        componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Data Table';
+      } else if (classList.contains('chart') || text.includes('Chart') || text.includes('Emissions') || inlineStyle.includes('bar')) {
         componentType = 'chart';
-        componentContent = text.substring(0, 50) || 'Chart';
+        componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || text.substring(0, 50) || 'Chart';
       } else if (tagName === 'img' || htmlElement.querySelector('img')) {
         componentType = 'image';
-        componentContent = 'Image';
+        componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Image';
+      } else if (tagName === 'div' && (classList.contains('chart') || classList.contains('table'))) {
+        // Handle div-wrapped components
+        if (classList.contains('table') || htmlElement.querySelector('table')) {
+          componentType = 'table';
+          const table = htmlElement.querySelector('table');
+          if (table) {
+            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent?.trim() || '');
+            const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
+              Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || '')
+            );
+            componentData = { headers, rows };
+          }
+          componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Data Table';
+        } else if (classList.contains('chart')) {
+          componentType = 'chart';
+          componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Chart';
+        }
       }
 
-      // Extract styles
+      // Extract inline styles
       const componentStyle: React.CSSProperties = {
-        fontSize: style.fontSize || '16px',
-        color: style.color || '#333',
-        fontWeight: style.fontWeight || 'normal',
-        minHeight: componentType === 'chart' || componentType === 'table' ? '250px' : undefined
+        fontSize: htmlElement.style.fontSize || '16px',
+        color: htmlElement.style.color || '#333',
+        fontWeight: htmlElement.style.fontWeight || 'normal',
+        minHeight: componentType === 'chart' || componentType === 'table' ? '250px' : undefined,
+        backgroundColor: htmlElement.style.backgroundColor || undefined,
+        padding: htmlElement.style.padding || undefined,
+        borderRadius: htmlElement.style.borderRadius || undefined
       };
 
-      // Create component
-      importedComponents.push({
-        id: `imported_${Date.now()}_${componentIndex++}`,
-        type: componentType,
-        content: componentContent,
-        style: componentStyle
-      });
-    });
+      // Skip if this looks like a layout wrapper without meaningful content
+      if (componentContent && componentContent.length > 0 && componentContent.length < 500) {
+        // Create component
+        importedComponents.push({
+          id: `imported_${Date.now()}_${componentIndex++}`,
+          type: componentType,
+          content: componentContent,
+          style: componentStyle,
+          data: componentData
+        });
+      }
+    };
+
+    // Process all child elements
+    Array.from(container.children).forEach(child => processElement(child));
 
     // If no components found, add a default header
     if (importedComponents.length === 0) {
@@ -405,7 +639,7 @@ const ReportEditor = () => {
     setComponents(importedComponents);
     setImportedFromReports(true);
 
-    // Update layouts
+    // Update layouts with proper positions
     const newLayouts = importedComponents.map((comp, i) => ({
       i: comp.id,
       x: (i % 2) * 6,
@@ -843,34 +1077,11 @@ const ReportEditor = () => {
         };
 
         return (
-          <div style={baseStyle} className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg">
-            <div className="flex items-center gap-2 mb-3">
-              <Table className="h-5 w-5 text-green-600" />
-              <h3 className="text-base font-semibold text-gray-800">{comp.content}</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b-2 border-green-200">
-                    {tableData.headers.map((header: string, i: number) => (
-                      <th key={i} className="text-left py-2 px-3 font-semibold text-gray-700">
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {tableData.rows.map((row: string[], i: number) => (
-                    <tr key={i} className="border-b border-green-100">
-                      {row.map((cell: string, j: number) => (
-                        <td key={j} className="py-2 px-3">{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <EditableTable
+            data={tableData}
+            onChange={(newData) => updateComponent(comp.id, { data: newData })}
+            style={baseStyle}
+          />
         );
       case "image":
         return (
