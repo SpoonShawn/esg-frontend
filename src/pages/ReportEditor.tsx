@@ -688,11 +688,79 @@ const ReportEditor = () => {
           ? `<p class="text">${comp.content}</p>`
           : `<h2 class="title">${comp.content}</h2>`;
       case "chart":
-        return `<div class="chart"><h3>📊 ${comp.content}</h3><p>Chart will be rendered here</p></div>`;
+        return `
+          <div class="chart" style="min-height: 300px; background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%); border-radius: 8px; padding: 20px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+              <span style="font-size: 24px;">📊</span>
+              <h3 style="margin: 0; color: #1e40af;">${comp.content}</h3>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: #4b5563; width: 80px;">Scope 1</span>
+                <div style="flex: 1; height: 16px; background: white; border-radius: 8px; overflow: hidden;">
+                  <div style="height: 100%; background: #3b82f6; width: 65%;"></div>
+                </div>
+                <span style="font-size: 12px; color: #4b5563;">65%</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: #4b5563; width: 80px;">Scope 2</span>
+                <div style="flex: 1; height: 16px; background: white; border-radius: 8px; overflow: hidden;">
+                  <div style="height: 100%; background: #6366f1; width: 45%;"></div>
+                </div>
+                <span style="font-size: 12px; color: #4b5563;">45%</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: #4b5563; width: 80px;">Scope 3</span>
+                <div style="flex: 1; height: 16px; background: white; border-radius: 8px; overflow: hidden;">
+                  <div style="height: 100%; background: #8b5cf6; width: 80%;"></div>
+                </div>
+                <span style="font-size: 12px; color: #4b5563;">80%</span>
+              </div>
+            </div>
+          </div>
+        `;
       case "table":
-        return `<div class="table"><h3>📋 ${comp.content}</h3><p>Table data will be rendered here</p></div>`;
+        return `
+          <div class="table" style="min-height: 200px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-radius: 8px; padding: 20px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+              <span style="font-size: 24px;">📋</span>
+              <h3 style="margin: 0; color: #166534;">${comp.content}</h3>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+              <thead>
+                <tr style="border-bottom: 2px solid #86efac;">
+                  <th style="text-align: left; padding: 8px; color: #14532d; font-weight: 600;">Category</th>
+                  <th style="text-align: right; padding: 8px; color: #14532d; font-weight: 600;">Value</th>
+                  <th style="text-align: right; padding: 8px; color: #14532d; font-weight: 600;">Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="border-bottom: 1px solid #bbf7d0;">
+                  <td style="padding: 8px;">Total Emissions</td>
+                  <td style="text-align: right; padding: 8px;">1,234</td>
+                  <td style="text-align: right; padding: 8px;">tCO₂e</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #bbf7d0;">
+                  <td style="padding: 8px;">Revenue</td>
+                  <td style="text-align: right; padding: 8px;">5.6</td>
+                  <td style="text-align: right; padding: 8px;">M HKD</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #bbf7d0;">
+                  <td style="padding: 8px;">Intensity</td>
+                  <td style="text-align: right; padding: 8px;">0.22</td>
+                  <td style="text-align: right; padding: 8px;">tCO₂e/M HKD</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        `;
       case "image":
-        return `<div class="image"><h3>🖼️ ${comp.content}</h3></div>`;
+        return `
+          <div class="image" style="min-height: 200px; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px;">
+            <span style="font-size: 48px;">🖼️</span>
+            <h3 style="margin: 0; color: #7c3aed;">${comp.content}</h3>
+          </div>
+        `;
       default:
         return `<p>${comp.content}</p>`;
     }
@@ -717,26 +785,80 @@ const ReportEditor = () => {
         );
       case "chart":
         return (
-          <div style={baseStyle} className="flex flex-col items-center justify-center p-4">
-            <BarChart3 className="h-8 w-8 mb-2 text-blue-500" />
-            <h3 className="text-sm font-medium">{comp.content}</h3>
-            <p className="text-xs text-muted-foreground mt-1">Chart placeholder</p>
+          <div style={baseStyle} className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg">
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart3 className="h-5 w-5 text-blue-600" />
+              <h3 className="text-base font-semibold text-gray-800">{comp.content}</h3>
+            </div>
+            <div className="space-y-2">
+              {/* Example bar chart visualization */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 w-20">Scope 1</span>
+                <div className="flex-1 h-4 bg-white rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded-full" style={{ width: '65%' }}></div>
+                </div>
+                <span className="text-xs text-gray-600">65%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 w-20">Scope 2</span>
+                <div className="flex-1 h-4 bg-white rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500 rounded-full" style={{ width: '45%' }}></div>
+                </div>
+                <span className="text-xs text-gray-600">45%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 w-20">Scope 3</span>
+                <div className="flex-1 h-4 bg-white rounded-full overflow-hidden">
+                  <div className="h-full bg-purple-500 rounded-full" style={{ width: '80%' }}></div>
+                </div>
+                <span className="text-xs text-gray-600">80%</span>
+              </div>
+            </div>
           </div>
         );
       case "table":
         return (
-          <div style={baseStyle} className="flex flex-col items-center justify-center p-4">
-            <Table className="h-8 w-8 mb-2 text-green-500" />
-            <h3 className="text-sm font-medium">{comp.content}</h3>
-            <p className="text-xs text-muted-foreground mt-1">Table placeholder</p>
+          <div style={baseStyle} className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg">
+            <div className="flex items-center gap-2 mb-3">
+              <Table className="h-5 w-5 text-green-600" />
+              <h3 className="text-base font-semibold text-gray-800">{comp.content}</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-green-200">
+                    <th className="text-left py-2 px-3 font-semibold text-gray-700">Category</th>
+                    <th className="text-right py-2 px-3 font-semibold text-gray-700">Value</th>
+                    <th className="text-right py-2 px-3 font-semibold text-gray-700">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-green-100">
+                    <td className="py-2 px-3">Total Emissions</td>
+                    <td className="text-right py-2 px-3">1,234</td>
+                    <td className="text-right py-2 px-3">tCO₂e</td>
+                  </tr>
+                  <tr className="border-b border-green-100">
+                    <td className="py-2 px-3">Revenue</td>
+                    <td className="text-right py-2 px-3">5.6</td>
+                    <td className="text-right py-2 px-3">M HKD</td>
+                  </tr>
+                  <tr className="border-b border-green-100">
+                    <td className="py-2 px-3">Intensity</td>
+                    <td className="text-right py-2 px-3">0.22</td>
+                    <td className="text-right py-2 px-3">tCO₂e/M HKD</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         );
       case "image":
         return (
-          <div style={baseStyle} className="flex flex-col items-center justify-center p-4">
-            <Image className="h-8 w-8 mb-2 text-purple-500" />
-            <h3 className="text-sm font-medium">{comp.content}</h3>
-            <p className="text-xs text-muted-foreground mt-1">Image placeholder</p>
+          <div style={baseStyle} className="flex flex-col items-center justify-center p-4 bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg">
+            <Image className="h-12 w-12 mb-3 text-purple-500" />
+            <h3 className="text-base font-semibold text-gray-800">{comp.content}</h3>
+            <p className="text-sm text-gray-600 mt-1">Image placeholder - Click to upload</p>
           </div>
         );
       default:
