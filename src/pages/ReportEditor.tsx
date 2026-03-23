@@ -720,6 +720,16 @@ const ReportEditor = () => {
           </div>
         `;
       case "table":
+        // Get table data from component
+        const tableData = comp.data || {
+          headers: ["Category", "Value", "Unit"],
+          rows: [
+            ["Total Emissions", "1,234", "tCO₂e"],
+            ["Revenue", "5.6", "M HKD"],
+            ["Intensity", "0.22", "tCO₂e/M HKD"]
+          ]
+        };
+
         return `
           <div class="table" style="min-height: 200px; background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border-radius: 8px; padding: 20px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
@@ -729,27 +739,19 @@ const ReportEditor = () => {
             <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
               <thead>
                 <tr style="border-bottom: 2px solid #86efac;">
-                  <th style="text-align: left; padding: 8px; color: #14532d; font-weight: 600;">Category</th>
-                  <th style="text-align: right; padding: 8px; color: #14532d; font-weight: 600;">Value</th>
-                  <th style="text-align: right; padding: 8px; color: #14532d; font-weight: 600;">Unit</th>
+                  ${tableData.headers.map((h: string) =>
+                    `<th style="text-align: left; padding: 8px; color: #14532d; font-weight: 600;">${h}</th>`
+                  ).join('')}
                 </tr>
               </thead>
               <tbody>
-                <tr style="border-bottom: 1px solid #bbf7d0;">
-                  <td style="padding: 8px;">Total Emissions</td>
-                  <td style="text-align: right; padding: 8px;">1,234</td>
-                  <td style="text-align: right; padding: 8px;">tCO₂e</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #bbf7d0;">
-                  <td style="padding: 8px;">Revenue</td>
-                  <td style="text-align: right; padding: 8px;">5.6</td>
-                  <td style="text-align: right; padding: 8px;">M HKD</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #bbf7d0;">
-                  <td style="padding: 8px;">Intensity</td>
-                  <td style="text-align: right; padding: 8px;">0.22</td>
-                  <td style="text-align: right; padding: 8px;">tCO₂e/M HKD</td>
-                </tr>
+                ${tableData.rows.map((row: string[]) =>
+                  `<tr style="border-bottom: 1px solid #bbf7d0;">
+                    ${row.map((cell: string) =>
+                      `<td style="padding: 8px;">${cell}</td>`
+                    ).join('')}
+                  </tr>`
+                ).join('')}
               </tbody>
             </table>
           </div>
@@ -773,6 +775,20 @@ const ReportEditor = () => {
       minHeight: comp.style?.minHeight || 'auto'
     };
 
+    // Parse component content for structured data
+    const getComponentData = () => {
+      if (comp.data) return comp.data;
+
+      // Try to parse JSON content
+      try {
+        return JSON.parse(comp.content);
+      } catch {
+        return null;
+      }
+    };
+
+    const componentData = getComponentData();
+
     switch (comp.type) {
       case "header":
         return <h1 style={baseStyle}>{comp.content}</h1>;
@@ -791,7 +807,6 @@ const ReportEditor = () => {
               <h3 className="text-base font-semibold text-gray-800">{comp.content}</h3>
             </div>
             <div className="space-y-2">
-              {/* Example bar chart visualization */}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600 w-20">Scope 1</span>
                 <div className="flex-1 h-4 bg-white rounded-full overflow-hidden">
@@ -817,6 +832,16 @@ const ReportEditor = () => {
           </div>
         );
       case "table":
+        // Check if content has table data structure
+        const tableData = componentData || {
+          headers: ["Category", "Value", "Unit"],
+          rows: [
+            ["Total Emissions", "1,234", "tCO₂e"],
+            ["Revenue", "5.6", "M HKD"],
+            ["Intensity", "0.22", "tCO₂e/M HKD"]
+          ]
+        };
+
         return (
           <div style={baseStyle} className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg">
             <div className="flex items-center gap-2 mb-3">
@@ -827,27 +852,21 @@ const ReportEditor = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b-2 border-green-200">
-                    <th className="text-left py-2 px-3 font-semibold text-gray-700">Category</th>
-                    <th className="text-right py-2 px-3 font-semibold text-gray-700">Value</th>
-                    <th className="text-right py-2 px-3 font-semibold text-gray-700">Unit</th>
+                    {tableData.headers.map((header: string, i: number) => (
+                      <th key={i} className="text-left py-2 px-3 font-semibold text-gray-700">
+                        {header}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-green-100">
-                    <td className="py-2 px-3">Total Emissions</td>
-                    <td className="text-right py-2 px-3">1,234</td>
-                    <td className="text-right py-2 px-3">tCO₂e</td>
-                  </tr>
-                  <tr className="border-b border-green-100">
-                    <td className="py-2 px-3">Revenue</td>
-                    <td className="text-right py-2 px-3">5.6</td>
-                    <td className="text-right py-2 px-3">M HKD</td>
-                  </tr>
-                  <tr className="border-b border-green-100">
-                    <td className="py-2 px-3">Intensity</td>
-                    <td className="text-right py-2 px-3">0.22</td>
-                    <td className="text-right py-2 px-3">tCO₂e/M HKD</td>
-                  </tr>
+                  {tableData.rows.map((row: string[], i: number) => (
+                    <tr key={i} className="border-b border-green-100">
+                      {row.map((cell: string, j: number) => (
+                        <td key={j} className="py-2 px-3">{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1078,6 +1097,87 @@ const ReportEditor = () => {
                           placeholder="Enter content..."
                         />
                       </div>
+
+                      {/* Table data editor */}
+                      {components.find(c => c.id === selectedId)?.type === 'table' && (
+                        <div className="space-y-3 border-t pt-4">
+                          <Label className="text-sm font-medium">Table Data</Label>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs w-20">Headers</Label>
+                              <Input
+                                value={(() => {
+                                  const comp = components.find(c => c.id === selectedId);
+                                  if (comp?.data?.headers) {
+                                    return comp.data.headers.join(', ');
+                                  }
+                                  return 'Category, Value, Unit';
+                                })()}
+                                onChange={(e) => {
+                                  const headers = e.target.value.split(',').map(h => h.trim());
+                                  const comp = components.find(c => c.id === selectedId);
+                                  const currentData = comp?.data || {
+                                    headers: ['Category', 'Value', 'Unit'],
+                                    rows: [
+                                      ['Total Emissions', '1,234', 'tCO₂e'],
+                                      ['Revenue', '5.6', 'M HKD'],
+                                      ['Intensity', '0.22', 'tCO₂e/M HKD']
+                                    ]
+                                  };
+                                  updateComponent(selectedId, {
+                                    data: {
+                                      ...currentData,
+                                      headers
+                                    }
+                                  });
+                                }}
+                                placeholder="Category, Value, Unit"
+                                className="text-sm"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Rows (one per line, comma-separated)</Label>
+                              <textarea
+                                value={(() => {
+                                  const comp = components.find(c => c.id === selectedId);
+                                  if (comp?.data?.rows) {
+                                    return comp.data.rows.map((row: string[]) => row.join(', ')).join('\n');
+                                  }
+                                  return `Total Emissions, 1,234, tCO₂e\nRevenue, 5.6, M HKD\nIntensity, 0.22, tCO₂e/M HKD`;
+                                })()}
+                                onChange={(e) => {
+                                  const rows = e.target.value.split('\n')
+                                    .filter(line => line.trim())
+                                    .map(line => line.split(',').map(cell => cell.trim()));
+                                  const comp = components.find(c => c.id === selectedId);
+                                  const currentData = comp?.data || {
+                                    headers: ['Category', 'Value', 'Unit'],
+                                    rows: []
+                                  };
+                                  updateComponent(selectedId, {
+                                    data: {
+                                      ...currentData,
+                                      rows
+                                    }
+                                  });
+                                }}
+                                placeholder="Row 1 data, value, unit"
+                                className="w-full h-24 px-2 py-1 text-xs border rounded-md resize-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Chart data editor */}
+                      {components.find(c => c.id === selectedId)?.type === 'chart' && (
+                        <div className="space-y-3 border-t pt-4">
+                          <Label className="text-sm font-medium">Chart Data</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Chart displays example emissions data. Customize the chart title above.
+                          </p>
+                        </div>
+                      )}
                     </TabsContent>
 
                     <TabsContent value="style" className="space-y-4">
@@ -1215,15 +1315,9 @@ const ReportEditor = () => {
                     <ResponsiveGridLayout
                       className="layout"
                       layouts={{
-                        lg: currentComponents.map((comp, i) => ({
-                          i: comp.id,
-                          x: (i % 2) * 6,
-                          y: Math.floor(i / 2) * 4,
-                          w: 6,
-                          h: comp.type === 'chart' || comp.type === 'table' ? 6 : 4,
-                          minW: 3,
-                          minH: 2
-                        }))
+                        lg: layouts.lg.filter((layout: any) =>
+                          currentComponents.some((comp) => comp.id === layout.i)
+                        )
                       }}
                       onLayoutChange={handleLayoutChange}
                       isDraggable={!previewMode}
