@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,32 +58,20 @@ const Reports = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Define loadSavedReports BEFORE useEffect to avoid reference errors
-  // Temporarily disabled to debug
-  /*
-  const loadSavedReports = useCallback(() => {
-    // Early return if no company
-    if (!currentCompany?.id) {
-      console.log('No company ID, skipping saved reports load');
-      return;
-    }
+  // Simple function without useCallback to avoid dependency issues
+  const loadSavedReports = () => {
+    if (!currentCompany?.id) return;
 
     try {
-      // Check if localStorage is available
-      if (typeof localStorage === 'undefined') {
-        console.warn('localStorage is not available');
-        return;
-      }
-
-      // Load all saved reports for this company with safety limits
       const allReports: any[] = [];
-      const maxItems = Math.min(localStorage.length || 0, 100); // Safety limit
 
-      for (let i = 0; i < maxItems; i++) {
+      // Safely iterate through localStorage
+      for (let i = 0; i < Math.min(localStorage.length, 100); i++) {
         try {
           const key = localStorage.key(i);
           if (!key) continue;
 
-          // Only load reports for this company
+          // Find reports for this company
           if (key.includes(`reports_generated_html_${currentCompany.id}`)) {
             const data = localStorage.getItem(key);
             if (data) {
@@ -94,39 +82,29 @@ const Reports = () => {
                   storageKey: key
                 });
               } catch (e) {
-                console.error('Failed to parse report data:', e);
+                // Skip corrupted data
+                console.warn('Skipping corrupted report data');
               }
             }
           }
         } catch (e) {
-          console.error('Error processing localStorage item:', e);
           continue;
         }
       }
 
-      // Sort by generation time (newest first)
+      // Sort and limit
       allReports.sort((a, b) => {
-        try {
-          const dateA = new Date(a.generatedAt || 0).getTime();
-          const dateB = new Date(b.generatedAt || 0).getTime();
-          return dateB - dateA;
-        } catch {
-          return 0;
-        }
+        const timeA = new Date(a.generatedAt || 0).getTime();
+        const timeB = new Date(b.generatedAt || 0).getTime();
+        return timeB - timeA;
       });
 
-      setSavedReports(allReports.slice(0, 10)); // Limit to 10 reports
+      setSavedReports(allReports.slice(0, 10));
       console.log(`Loaded ${allReports.length} saved reports`);
     } catch (error) {
       console.error('Error loading saved reports:', error);
-      setSavedReports([]); // Set empty array on error
+      setSavedReports([]);
     }
-  }, [currentCompany?.id]);
-  */
-
-  const loadSavedReports = () => {
-    console.log('loadSavedReports called - temporarily disabled');
-    setSavedReports([]);
   };
 
   // Load company details on component mount
@@ -135,6 +113,8 @@ const Reports = () => {
       loadCompanyDetails();
       loadAvailableChapters();
       loadAvailableThemes();
+      // Load saved reports without including in dependencies
+      setTimeout(() => loadSavedReports(), 100);
     }
   }, [currentCompany?.id]);
 
