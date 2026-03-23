@@ -568,110 +568,95 @@ const ReportEditor = () => {
     const importedComponents: ReportComponent[] = [];
     let componentIndex = 0;
 
-    // Extract theme from HTML if available
-    const bodyStyle = doc.body.getAttribute('style') || '';
-    const bgColorMatch = bodyStyle.match(/background-color:\s*([^;]+)/);
-    const primaryColor = bgColorMatch ? bgColorMatch[1].trim() : '#ffffff';
-
-    // Find all major sections in the HTML
+    // Find the main content container
     const container = doc.querySelector('.container') || doc.body;
 
-    // Process child elements
+    // Process all direct children of the container
     Array.from(container.children).forEach((element, index) => {
       const htmlElement = element as HTMLElement;
       const tagName = htmlElement.tagName.toLowerCase();
       const classList = htmlElement.classList;
       const text = htmlElement.textContent || '';
+      const innerHTML = htmlElement.innerHTML;
 
-      // Skip empty elements and containers
-      if (!text.trim() && tagName !== 'img') return;
-      if (classList.contains('container')) return;
-
-      // For complex HTML elements, save as HTML type
-      if (tagName === 'div' && htmlElement.innerHTML.length > 100) {
-        // Check if this div contains complex content (tables, charts, etc)
-        const hasComplexContent = htmlElement.querySelector('table') ||
-                                 htmlElement.querySelector('chart') ||
-                                 classList.contains('chart') ||
-                                 classList.contains('table');
-
-        if (hasComplexContent || htmlElement.innerHTML.includes('<table') || htmlElement.innerHTML.includes('style=')) {
-          // Save as raw HTML component
-          const componentStyle: React.CSSProperties = {
-            minHeight: '100px'
-          };
-
-          importedComponents.push({
-            id: `imported_${Date.now()}_${componentIndex++}`,
-            type: 'html',
-            content: htmlElement.textContent?.substring(0, 100) || 'HTML Content',
-            htmlContent: htmlElement.outerHTML,
-            style: componentStyle
-          });
-          return;
-        }
+      // Skip if completely empty
+      if (!text.trim() && !htmlElement.querySelector('img')) {
+        console.log('Skipping empty element:', tagName, htmlElement.className);
+        return;
       }
 
-      // For simple elements, create typed components
-      let componentType: ReportComponent['type'] = 'text';
-      let componentContent = text;
+      // Get the outer HTML to preserve everything
+      const outerHTML = htmlElement.outerHTML;
+
+      // Determine component type
+      let componentType: ReportComponent['type'] = 'html';
+      let componentContent = text.substring(0, 100) || 'Content';
       let componentData: any = undefined;
 
-      // Get computed styles from inline style
-      const inlineStyle = htmlElement.getAttribute('style') || '';
-
-      // Detect component type based on HTML structure and content
+      // Check if this is a simple text element
       if (tagName === 'h1') {
         componentType = 'header';
         componentContent = htmlElement.textContent?.trim() || 'Report Title';
       } else if (tagName === 'h2' || tagName === 'h3') {
         componentType = 'text';
         componentContent = htmlElement.textContent?.trim() || 'Section Title';
-      } else if (tagName === 'p') {
+      } else if (tagName === 'p' && !innerHTML.includes('<') && htmlElement.textContent?.trim()) {
+        // Simple paragraph without nested HTML
         componentType = 'text';
-        componentContent = htmlElement.textContent?.trim() || 'Paragraph content';
-      } else if (tagName === 'table' || htmlElement.querySelector('table')) {
+        componentContent = htmlElement.textContent?.trim() || 'Paragraph';
+      } else if (tagName === 'table') {
         componentType = 'table';
-        const table = tagName === 'table' ? htmlElement : htmlElement.querySelector('table');
-        if (table) {
-          const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent?.trim() || '');
-          const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
-            Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || '')
-          );
-          componentData = { headers, rows };
-        }
+        const table = htmlElement;
+        const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent?.trim() || '');
+        const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
+          Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || '')
+        );
+        componentData = { headers, rows };
         componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Data Table';
-      } else if (classList.contains('chart') || text.includes('Chart') || text.includes('Emissions') || inlineStyle.includes('bar')) {
+      } else if (classList.contains('chart') || text.includes('Chart') || text.includes('Emissions')) {
         componentType = 'chart';
         componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || text.substring(0, 50) || 'Chart';
       } else if (tagName === 'img' || htmlElement.querySelector('img')) {
         componentType = 'image';
         componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Image';
+      } else {
+        // For everything else, save as HTML to preserve all content
+        componentType = 'html';
+        componentContent = htmlElement.querySelector('h1, h2, h3')?.textContent?.trim() || text.substring(0, 100) || 'Section';
       }
 
       // Extract inline styles
+      const computedStyle = window.getComputedStyle(htmlElement);
       const componentStyle: React.CSSProperties = {
-        fontSize: htmlElement.style.fontSize || '16px',
-        color: htmlElement.style.color || '#333',
-        fontWeight: htmlElement.style.fontWeight || 'normal',
-        minHeight: componentType === 'chart' || componentType === 'table' ? '250px' : undefined,
+        fontSize: computedStyle.fontSize || '16px',
+        color: computedStyle.color || '#333',
+        fontWeight: computedStyle.fontWeight || 'normal',
+        minHeight: componentType === 'chart' || componentType === 'table' || componentType === 'html' ? '200px' : undefined,
         backgroundColor: htmlElement.style.backgroundColor || undefined,
         padding: htmlElement.style.padding || undefined,
+        margin: htmlElement.style.margin || undefined,
         borderRadius: htmlElement.style.borderRadius || undefined
       };
 
-      // Skip if this looks like a layout wrapper without meaningful content
-      if (componentContent && componentContent.length > 0 && componentContent.length < 500) {
-        // Create component
-        importedComponents.push({
-          id: `imported_${Date.now()}_${componentIndex++}`,
-          type: componentType,
-          content: componentContent,
-          style: componentStyle,
-          data: componentData
-        });
+      // Create component
+      const newComponent: ReportComponent = {
+        id: `imported_${Date.now()}_${componentIndex++}`,
+        type: componentType,
+        content: componentContent,
+        style: componentStyle,
+        data: componentData
+      };
+
+      // For HTML type, store the raw HTML
+      if (componentType === 'html') {
+        newComponent.htmlContent = outerHTML;
       }
+
+      importedComponents.push(newComponent);
+      console.log('Imported component:', componentType, componentContent.substring(0, 30));
     });
+
+    console.log(`Total components imported: ${importedComponents.length}`);
 
     // If no components found, add a default header
     if (importedComponents.length === 0) {

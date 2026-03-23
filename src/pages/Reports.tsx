@@ -328,6 +328,28 @@ const Reports = () => {
         const htmlContent = await response.text();
         setHtmlReportContent(htmlContent);
         setShowHtmlReport(true);
+
+        // Auto-save to localStorage for editor
+        try {
+          const storageKey = `reports_generated_html_${currentCompany?.id}`;
+          const reportData = {
+            html: htmlContent,
+            config: {
+              asOfDate,
+              fyDate,
+              selectedTheme,
+              headingFont,
+              bodyFont,
+              selectedChapters
+            },
+            generatedAt: new Date().toISOString()
+          };
+          localStorage.setItem(storageKey, JSON.stringify(reportData));
+          console.log('Report auto-saved to localStorage');
+        } catch (error) {
+          console.error('Failed to save report:', error);
+        }
+
         toast.success(`HTML Report generated successfully for FY ${fyDate}!`);
 
         // Reset form
