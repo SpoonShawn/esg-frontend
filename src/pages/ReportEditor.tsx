@@ -625,18 +625,30 @@ const ReportEditor = () => {
         componentContent = htmlElement.querySelector('h1, h2, h3')?.textContent?.trim() || text.substring(0, 100) || 'Section';
       }
 
-      // Extract inline styles
-      const computedStyle = window.getComputedStyle(htmlElement);
-      const componentStyle: React.CSSProperties = {
-        fontSize: computedStyle.fontSize || '16px',
-        color: computedStyle.color || '#333',
-        fontWeight: computedStyle.fontWeight || 'normal',
-        minHeight: componentType === 'chart' || componentType === 'table' || componentType === 'html' ? '200px' : undefined,
-        backgroundColor: htmlElement.style.backgroundColor || undefined,
-        padding: htmlElement.style.padding || undefined,
-        margin: htmlElement.style.margin || undefined,
-        borderRadius: htmlElement.style.borderRadius || undefined
+      // Extract inline styles safely
+      let componentStyle: React.CSSProperties = {
+        fontSize: '16px',
+        color: '#333',
+        fontWeight: 'normal',
+        minHeight: componentType === 'chart' || componentType === 'table' || componentType === 'html' ? '200px' : undefined
       };
+
+      // Try to get computed styles, with fallback
+      try {
+        const computedStyle = window.getComputedStyle(htmlElement);
+        componentStyle = {
+          fontSize: computedStyle.fontSize || '16px',
+          color: computedStyle.color || '#333',
+          fontWeight: computedStyle.fontWeight || 'normal',
+          minHeight: componentType === 'chart' || componentType === 'table' || componentType === 'html' ? '200px' : undefined,
+          backgroundColor: htmlElement.style.backgroundColor || undefined,
+          padding: htmlElement.style.padding || undefined,
+          margin: htmlElement.style.margin || undefined,
+          borderRadius: htmlElement.style.borderRadius || undefined
+        };
+      } catch (e) {
+        console.warn('Could not get computed styles, using defaults:', e);
+      }
 
       // Create component
       const newComponent: ReportComponent = {
@@ -668,21 +680,31 @@ const ReportEditor = () => {
       });
     }
 
-    // Set the imported components and flag
-    setComponents(importedComponents);
-    setImportedFromReports(true);
+    // Set the imported components and flag with error handling
+    try {
+      setComponents(importedComponents);
+      setImportedFromReports(true);
+    } catch (error) {
+      console.error('Error setting components:', error);
+      toast.error('Failed to import report. Please try again.');
+      return;
+    }
 
     // Update layouts with proper positions
-    const newLayouts = importedComponents.map((comp, i) => ({
-      i: comp.id,
-      x: (i % 2) * 6,
-      y: Math.floor(i / 2) * 4,
-      w: 6,
-      h: comp.type === 'chart' || comp.type === 'table' || comp.type === 'html' ? 6 : 4,
-      minW: 3,
-      minH: 2
-    }));
-    setLayouts({ lg: newLayouts });
+    try {
+      const newLayouts = importedComponents.map((comp, i) => ({
+        i: comp.id,
+        x: (i % 2) * 6,
+        y: Math.floor(i / 2) * 4,
+        w: 6,
+        h: comp.type === 'chart' || comp.type === 'table' || comp.type === 'html' ? 6 : 4,
+        minW: 3,
+        minH: 2
+      }));
+      setLayouts({ lg: newLayouts });
+    } catch (error) {
+      console.error('Error setting layouts:', error);
+    }
 
     toast.success(`Imported ${importedComponents.length} components from report`);
   };

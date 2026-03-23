@@ -97,33 +97,56 @@ const Reports = () => {
     if (!currentCompany?.id) return;
 
     try {
-      // Load all saved reports for this company
+      // Load all saved reports for this company with safety limits
       const allReports: any[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith(`reports_generated_html_${currentCompany.id}`)) {
-          const data = localStorage.getItem(key);
-          if (data) {
-            try {
-              const reportData = JSON.parse(data);
-              allReports.push({
-                ...reportData,
-                storageKey: key
-              });
-            } catch (e) {
-              console.error('Failed to parse report data:', e);
+      const maxItems = Math.min(localStorage.length, 100); // Safety limit
+      let processedItems = 0;
+
+      for (let i = 0; i < maxItems; i++) {
+        try {
+          const key = localStorage.key(i);
+          if (!key) continue;
+
+          if (key.startsWith(`reports_generated_html_${currentCompany.id}`)) {
+            const data = localStorage.getItem(key);
+            if (data) {
+              try {
+                const reportData = JSON.parse(data);
+                allReports.push({
+                  ...reportData,
+                  storageKey: key
+                });
+                processedItems++;
+
+                // Limit to 10 most recent reports to prevent performance issues
+                if (processedItems >= 10) break;
+              } catch (e) {
+                console.error('Failed to parse report data:', e);
+                // Remove corrupted data
+                localStorage.removeItem(key);
+              }
             }
           }
+        } catch (e) {
+          console.error('Error processing localStorage item:', e);
+          continue;
         }
       }
 
       // Sort by generation time (newest first)
-      allReports.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
+      allReports.sort((a, b) => {
+        try {
+          return new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime();
+        } catch {
+          return 0;
+        }
+      });
 
       setSavedReports(allReports);
       console.log(`Loaded ${allReports.length} saved reports`);
     } catch (error) {
       console.error('Error loading saved reports:', error);
+      setSavedReports([]); // Set empty array on error
     }
   };
 
