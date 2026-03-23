@@ -42,6 +42,9 @@ const Reports = () => {
   const [customPrimaryColor, setCustomPrimaryColor] = useState<string>('');
   const [customAccentColor, setCustomAccentColor] = useState<string>('');
 
+  // Saved reports
+  const [savedReports, setSavedReports] = useState<any[]>([]);
+
   // Get current date and year for defaults
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -62,6 +65,7 @@ const Reports = () => {
       loadCompanyDetails();
       loadAvailableChapters();
       loadAvailableThemes();
+      loadSavedReports();
     }
   }, [currentCompany?.id]);
 
@@ -86,6 +90,40 @@ const Reports = () => {
       }
     } catch (error) {
       console.error('Error loading chapters:', error);
+    }
+  };
+
+  const loadSavedReports = () => {
+    if (!currentCompany?.id) return;
+
+    try {
+      // Load all saved reports for this company
+      const allReports: any[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith(`reports_generated_html_${currentCompany.id}`)) {
+          const data = localStorage.getItem(key);
+          if (data) {
+            try {
+              const reportData = JSON.parse(data);
+              allReports.push({
+                ...reportData,
+                storageKey: key
+              });
+            } catch (e) {
+              console.error('Failed to parse report data:', e);
+            }
+          }
+        }
+      }
+
+      // Sort by generation time (newest first)
+      allReports.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
+
+      setSavedReports(allReports);
+      console.log(`Loaded ${allReports.length} saved reports`);
+    } catch (error) {
+      console.error('Error loading saved reports:', error);
     }
   };
 
@@ -331,7 +369,7 @@ const Reports = () => {
 
         // Auto-save to localStorage for editor
         try {
-          const storageKey = `reports_generated_html_${currentCompany?.id}`;
+          const storageKey = `reports_generated_html_${currentCompany?.id}_${Date.now()}`;
           const reportData = {
             html: htmlContent,
             config: {
@@ -345,7 +383,10 @@ const Reports = () => {
             generatedAt: new Date().toISOString()
           };
           localStorage.setItem(storageKey, JSON.stringify(reportData));
-          console.log('Report auto-saved to localStorage');
+          console.log('Report auto-saved to localStorage:', storageKey);
+
+          // Reload saved reports list
+          loadSavedReports();
         } catch (error) {
           console.error('Failed to save report:', error);
         }
@@ -381,10 +422,11 @@ const Reports = () => {
     }
   };
 
-  const openInEditor = () => {
+  const openInEditor = (html?: string) => {
     // Store the HTML content in sessionStorage for the editor to retrieve
-    if (htmlReportContent) {
-      sessionStorage.setItem('editorImportHtml', htmlReportContent);
+    const htmlToOpen = html || htmlReportContent;
+    if (htmlToOpen) {
+      sessionStorage.setItem('editorImportHtml', htmlToOpen);
       sessionStorage.setItem('editorImportSource', 'report');
       sessionStorage.setItem('editorImportConfig', JSON.stringify({
         asOfDate,
@@ -400,6 +442,21 @@ const Reports = () => {
 
       toast.success("Report opened in editor. You can now customize it!");
     }
+  };
+
+  const deleteSavedReport = (storageKey: string) => {
+    localStorage.removeItem(storageKey);
+    loadSavedReports(); // Reload the list
+    toast.success("Report deleted");
+  };
+
+  const openSavedReportInEditor = (report: any) => {
+    sessionStorage.setItem('editorImportHtml', report.html);
+    sessionStorage.setItem('editorImportSource', 'saved_report');
+    sessionStorage.setItem('editorImportConfig', JSON.stringify(report.config));
+
+    navigate('/reports/editor');
+    toast.success("Saved report opened in editor");
   };
 
 
@@ -535,6 +592,64 @@ const Reports = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Saved Reports */}
+        {savedReports.length > 0 && (
+          <Card className="shadow-soft">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Saved Reports ({savedReports.length})
+              </CardTitle>
+              <CardDescription>
+                Your previously generated reports - click to edit or delete
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {savedReports.map((report, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/50 transition-colors"
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Globe className="h-4 w-4 text-green-600" />
+                        <span className="font-medium text-sm">
+                          {report.config?.fyDate || 'N/A'} - {report.config?.selectedTheme || 'Default'} Theme
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Generated: {new Date(report.generatedAt).toLocaleString()} •
+                        Chapters: {report.config?.selectedChapters?.length || 0}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openSavedReportInEditor(report)}
+                        className="flex items-center gap-1"
+                      >
+                        <Edit3 className="h-3 w-3" />
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => deleteSavedReport(report.storageKey)}
+                        className="flex items-center gap-1 text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Report Dates Modal */}
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
