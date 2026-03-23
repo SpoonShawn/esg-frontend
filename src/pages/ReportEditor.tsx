@@ -24,8 +24,9 @@ import { CSS } from "@dnd-kit/utilities";
 // Component types
 interface ReportComponent {
   id: string;
-  type: "header" | "text" | "chart" | "table" | "image";
+  type: "header" | "text" | "chart" | "table" | "image" | "html";
   content: string;
+  htmlContent?: string; // Store raw HTML for html type
   style: React.CSSProperties;
   data?: any;
 }
@@ -35,6 +36,47 @@ interface ReportTheme {
   theme: string;
   styles: Record<string, any>;
 }
+
+// HTML Renderer Component - Renders HTML with editable support
+interface HtmlRendererProps {
+  html: string;
+  style?: React.CSSProperties;
+  onChange?: (html: string) => void;
+  isEditable?: boolean;
+}
+
+const HtmlRenderer: React.FC<HtmlRendererProps> = ({ html, style, onChange, isEditable = false }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedHtml, setEditedHtml] = useState(html);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const handleBlur = () => {
+    if (isEditing && onChange && contentRef.current) {
+      const newHtml = contentRef.current.innerHTML;
+      onChange(newHtml);
+      setIsEditing(false);
+    }
+  };
+
+  const handleDoubleClick = () => {
+    if (isEditable) {
+      setIsEditing(true);
+    }
+  };
+
+  return (
+    <div
+      ref={contentRef}
+      style={style}
+      className={`${isEditable ? 'cursor-pointer hover:ring-2 hover:ring-blue-200' : ''} transition-all`}
+      dangerouslySetInnerHTML={{ __html: isEditing ? editedHtml : html }}
+      onDoubleClick={handleDoubleClick}
+      onBlur={handleBlur}
+      contentEditable={isEditing}
+      suppressContentEditableWarning
+    />
+  );
+};
 
 // Editable Table Component
 interface EditableTableProps {
@@ -303,6 +345,16 @@ const COMPONENT_TEMPLATES = {
     type: "image",
     content: "Company Logo",
     style: { minHeight: "200px", background: "#f3f4f6", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }
+  },
+  html: {
+    id: "html",
+    type: "html",
+    content: "Custom HTML Content",
+    htmlContent: `<div style="padding: 20px; background: #f9fafb; border-radius: 8px;">
+      <h3 style="margin: 0 0 10px 0; color: #1f2937;">Custom HTML Section</h3>
+      <p style="margin: 0; color: #6b7280;">Double-click to edit this HTML content</p>
+    </div>`,
+    style: { minHeight: "150px" }
   }
 };
 
@@ -524,27 +576,43 @@ const ReportEditor = () => {
     // Find all major sections in the HTML
     const container = doc.querySelector('.container') || doc.body;
 
-    // Process child elements - but skip wrapper divs
-    const processElement = (element: Element, depth = 0): void => {
-      if (depth > 2) return; // Limit depth to avoid too many nested elements
-
+    // Process child elements
+    Array.from(container.children).forEach((element, index) => {
       const htmlElement = element as HTMLElement;
       const tagName = htmlElement.tagName.toLowerCase();
-      const text = htmlElement.textContent || '';
       const classList = htmlElement.classList;
+      const text = htmlElement.textContent || '';
 
-      // Skip wrapper divs and empty elements
-      if (classList.contains('container') || classList.contains('component') || (!text.trim() && tagName !== 'img')) {
-        Array.from(element.children).forEach(child => processElement(child, depth + 1));
-        return;
+      // Skip empty elements and containers
+      if (!text.trim() && tagName !== 'img') return;
+      if (classList.contains('container')) return;
+
+      // For complex HTML elements, save as HTML type
+      if (tagName === 'div' && htmlElement.innerHTML.length > 100) {
+        // Check if this div contains complex content (tables, charts, etc)
+        const hasComplexContent = htmlElement.querySelector('table') ||
+                                 htmlElement.querySelector('chart') ||
+                                 classList.contains('chart') ||
+                                 classList.contains('table');
+
+        if (hasComplexContent || htmlElement.innerHTML.includes('<table') || htmlElement.innerHTML.includes('style=')) {
+          // Save as raw HTML component
+          const componentStyle: React.CSSProperties = {
+            minHeight: '100px'
+          };
+
+          importedComponents.push({
+            id: `imported_${Date.now()}_${componentIndex++}`,
+            type: 'html',
+            content: htmlElement.textContent?.substring(0, 100) || 'HTML Content',
+            htmlContent: htmlElement.outerHTML,
+            style: componentStyle
+          });
+          return;
+        }
       }
 
-      // Skip if this is just a wrapper for actual content
-      if (tagName === 'div' && element.children.length > 0 && !text.trim()) {
-        Array.from(element.children).forEach(child => processElement(child, depth + 1));
-        return;
-      }
-
+      // For simple elements, create typed components
       let componentType: ReportComponent['type'] = 'text';
       let componentContent = text;
       let componentData: any = undefined;
@@ -579,23 +647,6 @@ const ReportEditor = () => {
       } else if (tagName === 'img' || htmlElement.querySelector('img')) {
         componentType = 'image';
         componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Image';
-      } else if (tagName === 'div' && (classList.contains('chart') || classList.contains('table'))) {
-        // Handle div-wrapped components
-        if (classList.contains('table') || htmlElement.querySelector('table')) {
-          componentType = 'table';
-          const table = htmlElement.querySelector('table');
-          if (table) {
-            const headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent?.trim() || '');
-            const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
-              Array.from(tr.querySelectorAll('td')).map(td => td.textContent?.trim() || '')
-            );
-            componentData = { headers, rows };
-          }
-          componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Data Table';
-        } else if (classList.contains('chart')) {
-          componentType = 'chart';
-          componentContent = htmlElement.querySelector('h3')?.textContent?.trim() || 'Chart';
-        }
       }
 
       // Extract inline styles
@@ -620,10 +671,7 @@ const ReportEditor = () => {
           data: componentData
         });
       }
-    };
-
-    // Process all child elements
-    Array.from(container.children).forEach(child => processElement(child));
+    });
 
     // If no components found, add a default header
     if (importedComponents.length === 0) {
@@ -645,7 +693,7 @@ const ReportEditor = () => {
       x: (i % 2) * 6,
       y: Math.floor(i / 2) * 4,
       w: 6,
-      h: comp.type === 'chart' || comp.type === 'table' ? 6 : 4,
+      h: comp.type === 'chart' || comp.type === 'table' || comp.type === 'html' ? 6 : 4,
       minW: 3,
       minH: 2
     }));
@@ -921,6 +969,9 @@ const ReportEditor = () => {
         return comp.content.length > 50
           ? `<p class="text">${comp.content}</p>`
           : `<h2 class="title">${comp.content}</h2>`;
+      case "html":
+        // Return original HTML content
+        return comp.htmlContent || comp.content;
       case "chart":
         return `
           <div class="chart" style="min-height: 300px; background: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 100%); border-radius: 8px; padding: 20px;">
@@ -1032,6 +1083,16 @@ const ReportEditor = () => {
           <h2 style={baseStyle}>{comp.content}</h2>
         ) : (
           <p style={baseStyle}>{comp.content}</p>
+        );
+      case "html":
+        // Render HTML directly with editable support
+        return (
+          <HtmlRenderer
+            html={comp.htmlContent || comp.content}
+            style={baseStyle}
+            onChange={(newHtml) => updateComponent(comp.id, { htmlContent: newHtml })}
+            isEditable={true}
+          />
         );
       case "chart":
         return (
@@ -1281,6 +1342,15 @@ const ReportEditor = () => {
                       <Image className="h-6 w-6" />
                       <span className="text-xs">Image</span>
                     </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addComponent(COMPONENT_TEMPLATES.html)}
+                      className="h-20 flex flex-col gap-1"
+                    >
+                      <Type className="h-6 w-6" />
+                      <span className="text-xs">HTML</span>
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -1387,6 +1457,23 @@ const ReportEditor = () => {
                           <p className="text-xs text-muted-foreground">
                             Chart displays example emissions data. Customize the chart title above.
                           </p>
+                        </div>
+                      )}
+
+                      {/* HTML content editor */}
+                      {components.find(c => c.id === selectedId)?.type === 'html' && (
+                        <div className="space-y-3 border-t pt-4">
+                          <Label className="text-sm font-medium">HTML Content</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Edit the HTML content below. Double-click the component in canvas to edit directly.
+                          </p>
+                          <textarea
+                            value={components.find(c => c.id === selectedId)?.htmlContent || ''}
+                            onChange={(e) => updateComponent(selectedId, { htmlContent: e.target.value })}
+                            placeholder="Enter HTML code..."
+                            className="w-full h-32 px-2 py-1 text-xs font-mono border rounded-md resize-none"
+                            spellCheck={false}
+                          />
                         </div>
                       )}
                     </TabsContent>
