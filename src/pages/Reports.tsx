@@ -57,42 +57,7 @@ const Reports = () => {
   const [companyDetails, setCompanyDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-
-
-  // Load company details on component mount
-  useEffect(() => {
-    if (currentCompany?.id) {
-      loadCompanyDetails();
-      loadAvailableChapters();
-      loadAvailableThemes();
-      loadSavedReports();
-    }
-  }, [currentCompany?.id]);
-
-  const loadAvailableThemes = async () => {
-    try {
-      const response = await fetch(buildApiUrl('/api/reports/themes'));
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableThemes(data);
-      }
-    } catch (error) {
-      console.error('Error loading themes:', error);
-    }
-  };
-
-  const loadAvailableChapters = async () => {
-    try {
-      const response = await fetch(buildApiUrl('/api/reports/chapters'));
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableChapters(data);
-      }
-    } catch (error) {
-      console.error('Error loading chapters:', error);
-    }
-  };
-
+  // Define loadSavedReports BEFORE useEffect to avoid reference errors
   const loadSavedReports = useCallback(() => {
     if (!currentCompany?.id) return;
 
@@ -149,6 +114,40 @@ const Reports = () => {
       setSavedReports([]); // Set empty array on error
     }
   }, [currentCompany?.id]);
+
+  // Load company details on component mount
+  useEffect(() => {
+    if (currentCompany?.id) {
+      loadCompanyDetails();
+      loadAvailableChapters();
+      loadAvailableThemes();
+      loadSavedReports();
+    }
+  }, [currentCompany?.id, loadSavedReports]);
+
+  const loadAvailableThemes = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/reports/themes'));
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableThemes(data);
+      }
+    } catch (error) {
+      console.error('Error loading themes:', error);
+    }
+  };
+
+  const loadAvailableChapters = async () => {
+    try {
+      const response = await fetch(buildApiUrl('/api/reports/chapters'));
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableChapters(data);
+      }
+    } catch (error) {
+      console.error('Error loading chapters:', error);
+    }
+  };
 
   const toggleChapter = (chapterId: string) => {
     setSelectedChapters(prev =>
