@@ -58,21 +58,33 @@ const Reports = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Define loadSavedReports BEFORE useEffect to avoid reference errors
+  // Temporarily disabled to debug
+  /*
   const loadSavedReports = useCallback(() => {
-    if (!currentCompany?.id) return;
+    // Early return if no company
+    if (!currentCompany?.id) {
+      console.log('No company ID, skipping saved reports load');
+      return;
+    }
 
     try {
+      // Check if localStorage is available
+      if (typeof localStorage === 'undefined') {
+        console.warn('localStorage is not available');
+        return;
+      }
+
       // Load all saved reports for this company with safety limits
       const allReports: any[] = [];
-      const maxItems = Math.min(localStorage.length, 100); // Safety limit
-      let processedItems = 0;
+      const maxItems = Math.min(localStorage.length || 0, 100); // Safety limit
 
       for (let i = 0; i < maxItems; i++) {
         try {
           const key = localStorage.key(i);
           if (!key) continue;
 
-          if (key.startsWith(`reports_generated_html_${currentCompany.id}`)) {
+          // Only load reports for this company
+          if (key.includes(`reports_generated_html_${currentCompany.id}`)) {
             const data = localStorage.getItem(key);
             if (data) {
               try {
@@ -81,14 +93,8 @@ const Reports = () => {
                   ...reportData,
                   storageKey: key
                 });
-                processedItems++;
-
-                // Limit to 10 most recent reports to prevent performance issues
-                if (processedItems >= 10) break;
               } catch (e) {
                 console.error('Failed to parse report data:', e);
-                // Remove corrupted data
-                localStorage.removeItem(key);
               }
             }
           }
@@ -101,19 +107,27 @@ const Reports = () => {
       // Sort by generation time (newest first)
       allReports.sort((a, b) => {
         try {
-          return new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime();
+          const dateA = new Date(a.generatedAt || 0).getTime();
+          const dateB = new Date(b.generatedAt || 0).getTime();
+          return dateB - dateA;
         } catch {
           return 0;
         }
       });
 
-      setSavedReports(allReports);
+      setSavedReports(allReports.slice(0, 10)); // Limit to 10 reports
       console.log(`Loaded ${allReports.length} saved reports`);
     } catch (error) {
       console.error('Error loading saved reports:', error);
       setSavedReports([]); // Set empty array on error
     }
   }, [currentCompany?.id]);
+  */
+
+  const loadSavedReports = () => {
+    console.log('loadSavedReports called - temporarily disabled');
+    setSavedReports([]);
+  };
 
   // Load company details on component mount
   useEffect(() => {
@@ -121,14 +135,6 @@ const Reports = () => {
       loadCompanyDetails();
       loadAvailableChapters();
       loadAvailableThemes();
-      // loadSavedReports(); // Temporarily disabled to prevent infinite loop
-    }
-  }, [currentCompany?.id]);
-
-  // Load saved reports when company changes (separate effect)
-  useEffect(() => {
-    if (currentCompany?.id) {
-      loadSavedReports();
     }
   }, [currentCompany?.id]);
 
