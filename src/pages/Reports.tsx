@@ -58,53 +58,10 @@ const Reports = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Define loadSavedReports BEFORE useEffect to avoid reference errors
-  // Simple function without useCallback to avoid dependency issues
+  // Temporarily disabled due to rendering issues
   const loadSavedReports = () => {
-    if (!currentCompany?.id) return;
-
-    try {
-      const allReports: any[] = [];
-
-      // Safely iterate through localStorage
-      for (let i = 0; i < Math.min(localStorage.length, 100); i++) {
-        try {
-          const key = localStorage.key(i);
-          if (!key) continue;
-
-          // Find reports for this company
-          if (key.includes(`reports_generated_html_${currentCompany.id}`)) {
-            const data = localStorage.getItem(key);
-            if (data) {
-              try {
-                const reportData = JSON.parse(data);
-                allReports.push({
-                  ...reportData,
-                  storageKey: key
-                });
-              } catch (e) {
-                // Skip corrupted data
-                console.warn('Skipping corrupted report data');
-              }
-            }
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-
-      // Sort and limit
-      allReports.sort((a, b) => {
-        const timeA = new Date(a.generatedAt || 0).getTime();
-        const timeB = new Date(b.generatedAt || 0).getTime();
-        return timeB - timeA;
-      });
-
-      setSavedReports(allReports.slice(0, 10));
-      console.log(`Loaded ${allReports.length} saved reports`);
-    } catch (error) {
-      console.error('Error loading saved reports:', error);
-      setSavedReports([]);
-    }
+    console.log('loadSavedReports called - disabled');
+    // setSavedReports([]); // Don't update state to prevent issues
   };
 
   // Load company details on component mount
@@ -113,8 +70,6 @@ const Reports = () => {
       loadCompanyDetails();
       loadAvailableChapters();
       loadAvailableThemes();
-      // Load saved reports without including in dependencies
-      setTimeout(() => loadSavedReports(), 100);
     }
   }, [currentCompany?.id]);
 
