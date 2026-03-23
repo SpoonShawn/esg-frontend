@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,7 +93,7 @@ const Reports = () => {
     }
   };
 
-  const loadSavedReports = () => {
+  const loadSavedReports = useCallback(() => {
     if (!currentCompany?.id) return;
 
     try {
@@ -148,7 +148,7 @@ const Reports = () => {
       console.error('Error loading saved reports:', error);
       setSavedReports([]); // Set empty array on error
     }
-  };
+  }, [currentCompany?.id]);
 
   const toggleChapter = (chapterId: string) => {
     setSelectedChapters(prev =>
