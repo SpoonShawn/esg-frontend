@@ -1,28 +1,45 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Layout } from "@/components/Layout";
-import { FileText, AlertTriangle, CheckCircle, Globe } from "lucide-react";
+import { FileText, AlertTriangle, CheckCircle, Globe, Download, Trash2, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
 import { buildApiUrl } from "@/lib/api";
+
+// Types for report tasks
+interface ReportTask {
+  id: string;
+  companyId: number;
+  reportType: 'pdf' | 'html';
+  asOfDate: string;
+  fyDate: string;
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+  progress: number;
+  createdAt: string;
+  completedAt?: string;
+  downloadUrl?: string;
+  htmlContent?: string;
+  error?: string;
+}
+
+const REPORTS_STORAGE_KEY = 'esg_report_tasks';
+const POLLING_INTERVAL = 2000; // 2 seconds
 
 const Reports = () => {
   const { getCurrentCompany } = useAuth();
   const currentCompany = getCurrentCompany();
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isGeneratingHtml, setIsGeneratingHtml] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reportType, setReportType] = useState<'pdf' | 'html'>('pdf');
   const [htmlReportContent, setHtmlReportContent] = useState<string | null>(null);
   const [showHtmlReport, setShowHtmlReport] = useState(false);
-  // Get current date and year for defaults
+  
+  // Dates
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
@@ -31,17 +48,186 @@ const Reports = () => {
   
   const [asOfDate, setAsOfDate] = useState(currentDate);
   const [fyDate, setFyDate] = useState(currentYear.toString());
+  
+  // Company details
   const [companyDetails, setCompanyDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  
+  // Report tasks
+  const [tasks, setTasks] = useState<ReportTask[]>([]);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Load tasks from localStorage on mount
+  useEffect(() => {
+    loadTasks();
+    startPolling();
+    
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
 
-
-  // Load company details on component mount
+  // Load company details
   useEffect(() => {
     if (currentCompany?.id) {
       loadCompanyDetails();
     }
   }, [currentCompany?.id]);
+
+  // Start polling for task updates
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+
+    pollingRef.current = setInterval(() => {
+      updatePendingTasks();
+    }, POLLING_INTERVAL);
+  }, []);
+
+  // Load tasks from localStorage
+  const loadTasks = () => {
+    try {
+      const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+      if (stored) {
+        const parsedTasks: ReportTask[] = JSON.parse(stored);
+        // Filter out old tasks (older than 7 days)
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        
+        const validTasks = parsedTasks.filter(task => {
+          const taskDate = new Date(task.createdAt);
+          return taskDate > weekAgo;
+        });
+        
+        setTasks(validTasks);
+        
+        // Clean up old tasks in storage
+        if (validTasks.length !== parsedTasks.length) {
+          localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(validTasks));
+        }
+      }
+    } catch (error) {
+      console.error('Error loading tasks:', error);
+    }
+  };
+
+  // Save tasks to localStorage
+  const saveTasks = (updatedTasks: ReportTask[]) => {
+    try {
+      localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+      setTasks(updatedTasks);
+    } catch (error) {
+      console.error('Error saving tasks:', error);
+      toast.error('Failed to save report task');
+    }
+  };
+
+  // Update pending tasks by checking their status
+  const updatePendingTasks = useCallback(async () => {
+    const pendingTasks = tasks.filter(task => 
+      task.status === 'pending' || task.status === 'generating'
+    );
+
+    if (pendingTasks.length === 0) {
+      return;
+    }
+
+    // Update tasks that are still pending/generating
+    for (const task of pendingTasks) {
+      await generateReportInBackground(task);
+    }
+  }, [tasks]);
+
+  // Generate report in background
+  const generateReportInBackground = async (task: ReportTask) => {
+    try {
+      const updateTask = (updates: Partial<ReportTask>) => {
+        setTasks(prevTasks => 
+          prevTasks.map(t => 
+            t.id === task.id ? { ...t, ...updates } : t
+          )
+        );
+        
+        // Also update in localStorage
+        const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+        if (stored) {
+          const parsedTasks: ReportTask[] = JSON.parse(stored);
+          const updatedTasks = parsedTasks.map(t => 
+            t.id === task.id ? { ...t, ...updates } : t
+          );
+          localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+        }
+      };
+
+      // Mark as generating
+      updateTask({ status: 'generating', progress: 10 });
+
+      // Call the appropriate API based on report type
+      let apiUrl: string;
+      if (task.reportType === 'pdf') {
+        apiUrl = buildApiUrl(`/api/reports/generate?company_id=${task.companyId}&as_of_date=${task.asOfDate}&fy_date=${task.fyDate}`);
+      } else {
+        apiUrl = buildApiUrl(`/api/reports/generate-html?company_id=${task.companyId}&as_of_date=${task.asOfDate}&fy_date=${task.fyDate}`);
+      }
+
+      updateTask({ progress: 50 });
+
+      const response = await fetch(apiUrl, { method: 'GET' });
+      updateTask({ progress: 80 });
+
+      if (response.ok) {
+        if (task.reportType === 'pdf') {
+          // Get the PDF blob
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          
+          updateTask({
+            status: 'completed',
+            progress: 100,
+            completedAt: new Date().toISOString(),
+            downloadUrl: url
+          });
+
+          toast.success(`PDF Report for ${task.fyDate} is ready!`);
+        } else {
+          // Get HTML content
+          const htmlContent = await response.text();
+          
+          updateTask({
+            status: 'completed',
+            progress: 100,
+            completedAt: new Date().toISOString(),
+            htmlContent: htmlContent
+          });
+
+          toast.success(`HTML Report for ${task.fyDate} is ready!`);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Generation failed' }));
+        throw new Error(errorData.detail || 'Report generation failed');
+      }
+    } catch (error) {
+      console.error('Error generating report in background:', error);
+      
+      setTasks(prevTasks => 
+        prevTasks.map(t => 
+          t.id === task.id 
+            ? { 
+                ...t, 
+                status: 'failed' as const, 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                progress: 0
+              } 
+            : t
+        )
+      );
+
+      toast.error(`Failed to generate ${task.reportType.toUpperCase()} report`);
+    }
+  };
 
   const loadCompanyDetails = async () => {
     if (!currentCompany?.id) return;
@@ -75,7 +261,6 @@ const Reports = () => {
 
     const { website, description, workforce_data } = companyDetails;
     
-    // Check basic company info
     if (!website || !description) {
       return {
         isValid: false,
@@ -83,7 +268,6 @@ const Reports = () => {
       };
     }
 
-    // Check workforce data
     if (!workforce_data) {
       return {
         isValid: false,
@@ -93,7 +277,6 @@ const Reports = () => {
 
     const { age_bands, gender, employment_type, turnover, training } = workforce_data;
 
-    // Check age bands
     if (!age_bands || Object.values(age_bands).some(val => val === null || val === undefined)) {
       return {
         isValid: false,
@@ -101,7 +284,6 @@ const Reports = () => {
       };
     }
 
-    // Check gender
     if (!gender || (!gender.male && !gender.female && !gender.non_binary)) {
       return {
         isValid: false,
@@ -109,7 +291,6 @@ const Reports = () => {
       };
     }
 
-    // Check employment type
     if (!employment_type || !employment_type.full_time || !employment_type.part_time) {
       return {
         isValid: false,
@@ -117,7 +298,6 @@ const Reports = () => {
       };
     }
 
-    // Check turnover
     if (!turnover || Object.values(turnover).some(val => val === null || val === undefined)) {
       return {
         isValid: false,
@@ -125,7 +305,6 @@ const Reports = () => {
       };
     }
 
-    // Check training
     if (!training || !training.trained_total || !training.employees_end_fy) {
       return {
         isValid: false,
@@ -137,14 +316,6 @@ const Reports = () => {
   };
 
   const handleGenerateReport = async () => {
-    if (reportType === 'pdf') {
-      await generatePdfReport();
-    } else {
-      await generateHtmlReport();
-    }
-  };
-
-  const generatePdfReport = async () => {
     if (!currentCompany?.id) {
       toast.error("No company selected");
       return;
@@ -157,108 +328,77 @@ const Reports = () => {
       return;
     }
 
-    // Validate FY date format (YYYY)
     const fyDateRegex = /^\d{4}$/;
     if (!fyDateRegex.test(fyDate)) {
       toast.error("Please use YYYY format for Financial Year");
       return;
     }
 
-    setIsGenerating(true);
+    // Create new task
+    const newTask: ReportTask = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      companyId: currentCompany.id,
+      reportType,
+      asOfDate,
+      fyDate,
+      status: 'pending',
+      progress: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    // Add to tasks
+    const updatedTasks = [newTask, ...tasks];
+    saveTasks(updatedTasks);
+
     setIsModalOpen(false);
     
-    try {
-      // Call backend API to generate report
-      const response = await fetch(
-        buildApiUrl(`/api/reports/generate?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}`),
-        {
-          method: 'GET',
-        }
-      );
+    // Start background generation
+    toast.info(`${reportType.toUpperCase()} report generation started. You can navigate away and come back later!`);
+    
+    // Reset form
+    setAsOfDate(currentDate);
+    setFyDate(currentYear.toString());
+  };
 
-      if (response.ok) {
-        // Download the PDF
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `sustainability-report-${fyDate}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        
-        toast.success(`PDF Report generated successfully for FY ${fyDate}!`);
-        
-        // Reset form
-        setAsOfDate("");
-        setFyDate("");
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate report' }));
-        throw new Error(errorData.detail || 'Failed to generate report');
-      }
-    } catch (error) {
-      toast.error(`Failed to generate PDF report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      console.error("Error generating PDF report:", error);
-    } finally {
-      setIsGenerating(false);
+  const handleDownload = (task: ReportTask) => {
+    if (task.downloadUrl) {
+      const a = document.createElement('a');
+      a.href = task.downloadUrl;
+      a.download = `sustainability-report-${task.fyDate}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success('Report downloaded successfully');
     }
   };
 
-  const generateHtmlReport = async () => {
-    if (!currentCompany?.id) {
-      toast.error("No company selected");
-      return;
-    }
-
-    // Validate date formats
-    const asOfDateRegex = /^\d{2}\/\d{2}\/\d{4}$/;
-    if (!asOfDateRegex.test(asOfDate)) {
-      toast.error("Please use DD/MM/YYYY format for As Of Date");
-      return;
-    }
-
-    // Validate FY date format (YYYY)
-    const fyDateRegex = /^\d{4}$/;
-    if (!fyDateRegex.test(fyDate)) {
-      toast.error("Please use YYYY format for Financial Year");
-      return;
-    }
-
-    setIsGeneratingHtml(true);
-    setIsModalOpen(false);
-
-    try {
-      // Call backend API to generate HTML report
-      const response = await fetch(
-        buildApiUrl(`/api/reports/generate-html?company_id=${currentCompany?.id}&as_of_date=${asOfDate}&fy_date=${fyDate}`),
-        {
-          method: 'GET',
-        }
-      );
-
-      if (response.ok) {
-        // Display HTML report in dialog instead of popup
-        const htmlContent = await response.text();
-        setHtmlReportContent(htmlContent);
-        setShowHtmlReport(true);
-        toast.success(`HTML Report generated successfully for FY ${fyDate}!`);
-
-        // Reset form
-        setAsOfDate("");
-        setFyDate("");
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate HTML report' }));
-        throw new Error(errorData.detail || 'Failed to generate HTML report');
-      }
-    } catch (error) {
-      toast.error(`Failed to generate HTML report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      console.error("Error generating HTML report:", error);
-    } finally {
-      setIsGeneratingHtml(false);
+  const handleViewHtml = (task: ReportTask) => {
+    if (task.htmlContent) {
+      setHtmlReportContent(task.htmlContent);
+      setShowHtmlReport(true);
     }
   };
 
+  const handleDeleteTask = (taskId: string) => {
+    const updatedTasks = tasks.filter(t => t.id !== taskId);
+    saveTasks(updatedTasks);
+    toast.success('Report removed from history');
+  };
+
+  const getTaskStatusBadge = (task: ReportTask) => {
+    switch (task.status) {
+      case 'pending':
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+      case 'generating':
+        return <Badge variant="default" className="bg-blue-500"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Generating {task.progress}%</Badge>;
+      case 'completed':
+        return <Badge variant="default" className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Ready</Badge>;
+      case 'failed':
+        return <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />Failed</Badge>;
+      default:
+        return null;
+    }
+  };
 
   return (
     <Layout>
@@ -330,7 +470,7 @@ const Reports = () => {
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-success" />
-                    Appendix - Performance Table
+                  Appendix - Performance Table
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-success" />
@@ -370,10 +510,9 @@ const Reports = () => {
                 </div>
                 <Button 
                   onClick={() => setIsModalOpen(true)}
-                  disabled={isGenerating || isGeneratingHtml}
-                  className="w-full sm:w-auto"
+                  className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
                 >
-                  {isGenerating || isGeneratingHtml ? "Generating Report..." : `Generate ${reportType.toUpperCase()} Report`}
+                  Generate {reportType.toUpperCase()} Report
                 </Button>
               </div>
             ) : (
@@ -381,13 +520,96 @@ const Reports = () => {
                 <p className="text-muted-foreground mb-2">
                   Complete your company information to generate reports
                 </p>
-                <Button 
-                  variant="outline" 
-                  disabled
-                  className="w-full sm:w-auto"
-                >
+                <Button variant="outline" disabled className="w-full sm:w-auto">
                   Generate Report
                 </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Report History */}
+        <Card className="shadow-soft">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Report History
+            </CardTitle>
+            <CardDescription>
+              View and download previously generated reports
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {tasks.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No reports generated yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {tasks.map((task) => (
+                  <div key={task.id} className="border border-accent/10 rounded-lg p-4 hover:bg-accent/5 transition-colors">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-medium">
+                            {task.reportType === 'pdf' ? 'PDF' : 'HTML'} Report - FY {task.fyDate}
+                          </h3>
+                          {getTaskStatusBadge(task)}
+                        </div>
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <p>As of: {task.asOfDate}</p>
+                          <p>Created: {new Date(task.createdAt).toLocaleString()}</p>
+                          {task.error && (
+                            <p className="text-destructive">Error: {task.error}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {task.status === 'completed' && (
+                          <>
+                            {task.reportType === 'pdf' ? (
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => handleDownload(task)}
+                              >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                            ) : (
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => handleViewHtml(task)}
+                              >
+                                <Globe className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => handleDeleteTask(task.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {task.status === 'generating' && (
+                      <div className="mt-3">
+                        <div className="w-full bg-secondary rounded-full h-2">
+                          <div 
+                            className="bg-accent h-2 rounded-full transition-all" 
+                            style={{ width: `${task.progress}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
@@ -400,6 +622,8 @@ const Reports = () => {
               <DialogTitle>Generate {reportType.toUpperCase()} Report</DialogTitle>
               <DialogDescription>
                 Choose the key dates for your {reportType === 'pdf' ? 'PDF' : 'HTML'} ESG report.
+                <br /><br />
+                <span className="text-sm text-accent">✨ The report will generate in the background. You can navigate away and come back later!</span>
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
@@ -432,8 +656,8 @@ const Reports = () => {
               <Button variant="outline" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleGenerateReport} disabled={loadingDetails || isGenerating || isGeneratingHtml}>
-                Generate Report
+              <Button onClick={handleGenerateReport} disabled={loadingDetails}>
+                Start Generation
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -461,8 +685,6 @@ const Reports = () => {
             </div>
           </DialogContent>
         </Dialog>
-
-
       </div>
     </Layout>
   );
