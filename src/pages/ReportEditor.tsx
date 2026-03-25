@@ -1073,36 +1073,8 @@ const ReportEditor = () => {
   const getDisplayHtml = () => {
     // For imported reports, use the original complete HTML
     if (importedFromReports && components.length > 0 && components[0].originalHtml) {
-      // Extract styles from head and body content
-      let html = components[0].originalHtml;
-
-      // Extract style tags from head
-      const headStyleMatch = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
-      let styles = '';
-      if (headStyleMatch) {
-        const styleTags = headStyleMatch[1].match(/<style[^>]*>([\s\S]*?)<\/style>/gi);
-        if (styleTags) {
-          styles = styleTags.join('\n');
-        }
-      }
-
-      // Extract body content
-      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      let bodyContent = '';
-      if (bodyMatch) {
-        bodyContent = bodyMatch[1];
-      } else {
-        // If no body tag, use entire HTML
-        bodyContent = html;
-      }
-
-      // Return with styles and body content
-      return `
-        <div class="report-html-wrapper">
-          <style>${styles}</style>
-          ${bodyContent}
-        </div>
-      `;
+      // Simply return the original HTML without any modifications
+      return components[0].originalHtml;
     }
     // Otherwise, generate HTML from components
     return generateHtml();
