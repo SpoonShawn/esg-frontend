@@ -1320,14 +1320,17 @@ const ReportEditor = () => {
   return (
     <Layout>
       <style>{`
-        /* Fix: Prevent injected HTML styles from affecting the app */
-        .html-renderer-container {
+        /* Only protect app UI from style leakage, don't touch report content */
+        body > div,
+        nav,
+        .Layout > * {
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
         }
 
-        /* Override any body styles that might be in injected HTML */
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        /* Let report HTML render with its own styles */
+        .html-renderer-container body,
+        .html-renderer-container body * {
+          font-family: inherit !important;
         }
       `}</style>
       <div className="space-y-4">
