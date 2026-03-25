@@ -1326,8 +1326,8 @@ const ReportEditor = () => {
               <Plus className="h-4 w-4 mr-2" />
               New Report
             </Button>
-            <Button variant="outline" onClick={clearStorage} disabled={!lastSavedTime} title="Clear draft">
-              <Trash2 className="h-4 w-4" />
+            <Button variant="outline" onClick={saveToStorage} title="Quick save (Ctrl+S)">
+              <Save className="h-4 w-4" />
             </Button>
             <Button variant="outline" onClick={undo} disabled={historyIndex <= 0}>
               <Undo className="h-4 w-4" />
