@@ -1073,7 +1073,31 @@ const ReportEditor = () => {
   const getDisplayHtml = () => {
     // For imported reports, use the original complete HTML
     if (importedFromReports && components.length > 0 && components[0].originalHtml) {
-      return components[0].originalHtml;
+      // Wrap in a scoped container to prevent styles from leaking
+      let html = components[0].originalHtml;
+
+      // Extract the body content from complete HTML
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        html = bodyMatch[1]; // Just use the body content
+      }
+
+      // Extract style tags and wrap them with scope
+      const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+      if (styleMatch) {
+        let styles = styleMatch[1];
+        // Add scope prefix to all selectors
+        styles = styles.replace(/([^{]+){/g, '.report-preview-container $1{');
+        // Remove the original style tag
+        html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/i, '');
+        // Add scoped style
+        html = `<style>${styles}</style><div class="report-preview-container">${html}</div>`;
+      } else {
+        // No style tag, just wrap content
+        html = `<div class="report-preview-container">${html}</div>`;
+      }
+
+      return html;
     }
     // Otherwise, generate HTML from components
     return generateHtml();
@@ -1088,30 +1112,33 @@ const ReportEditor = () => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESG Sustainability Report</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        /* Scoped styles - only affect .report-preview-container */
+        .report-preview-container * { margin: 0; padding: 0; box-sizing: border-box; }
+        .report-preview-container {
             font-family: ${theme.font};
             background-color: ${theme.backgroundColor};
             color: #333;
             padding: 40px;
         }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .component { margin-bottom: 20px; }
-        .header { font-size: 32px; font-weight: bold; color: ${theme.primaryColor}; }
-        .title { font-size: 24px; font-weight: 600; color: ${theme.primaryColor}; }
-        .text { font-size: 16px; line-height: 1.6; color: #666; }
-        .chart { min-height: 300px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
-        .table { min-height: 200px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
-        .image { min-height: 200px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+        .report-preview-container .container { max-width: 1200px; margin: 0 auto; }
+        .report-preview-container .component { margin-bottom: 20px; }
+        .report-preview-container .header { font-size: 32px; font-weight: bold; color: ${theme.primaryColor}; }
+        .report-preview-container .title { font-size: 24px; font-weight: 600; color: ${theme.primaryColor}; }
+        .report-preview-container .text { font-size: 16px; line-height: 1.6; color: #666; }
+        .report-preview-container .chart { min-height: 300px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
+        .report-preview-container .table { min-height: 200px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
+        .report-preview-container .image { min-height: 200px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
     </style>
 </head>
 <body>
-    <div class="container">
-        ${components.map(comp => `
-            <div class="component ${comp.type}">
-                ${renderComponentContent(comp)}
-            </div>
-        `).join('')}
+    <div class="report-preview-container">
+        <div class="container">
+            ${components.map(comp => `
+                <div class="component ${comp.type}">
+                    ${renderComponentContent(comp)}
+                </div>
+            `).join('')}
+        </div>
     </div>
 </body>
 </html>`;
