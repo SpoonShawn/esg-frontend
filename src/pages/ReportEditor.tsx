@@ -1385,39 +1385,6 @@ const ReportEditor = () => {
 
   return (
     <Layout>
-      <style>{`
-        /* Protect app UI fonts from report HTML style leakage */
-        @supports (font-family: -apple-system) {
-          body, html, #root {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
-          }
-        }
-
-        /* Protect all app UI elements from style leakage */
-        nav, header, main, footer,
-        .space-y-4, .space-y-4 > div,
-        button, input, select, textarea,
-        .text-sm, .text-base, .text-lg, .text-xl,
-        .font-semibold, .font-bold {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
-        }
-
-        /* Ensure iframe content is isolated */
-        iframe {
-          font-family: inherit !important;
-        }
-
-        /* Reset any leaked styles */
-        * {
-          font-family: revert !important;
-        }
-
-        /* Re-apply system fonts for UI */
-        body, html, #root, nav, header, main, button, input {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-            'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif !important;
-        }
-      `}</style>
       <div className="space-y-4">
         {/* Header */}
         <div className="flex justify-between items-start">

@@ -46,6 +46,33 @@ export const Layout = ({ children }: LayoutProps) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-accent/5 via-background to-secondary/20">
+      {/* Global font protection to prevent report HTML style leakage */}
+      <style>{`
+        /* Force Poppins font for all app UI elements */
+        body, html, #root, div[class*="bg-"], div[class*="text-"] {
+          font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        }
+
+        /* Protect navigation and layout elements */
+        nav, header, main, footer, aside, sidebar {
+          font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        }
+
+        /* Protect all interactive elements */
+        button, input, select, textarea, a, link {
+          font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        }
+
+        /* Protect all text elements */
+        h1, h2, h3, h4, h5, h6, p, span, label {
+          font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        }
+
+        /* Ensure iframe content doesn't affect parent styles */
+        iframe {
+          font-family: inherit !important;
+        }
+      `}</style>
       {/* Mobile menu button */}
       <div className="lg:hidden fixed top-4 left-4 z-50">
         <Button
