@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Layout } from "@/components/Layout";
-import { FileText, AlertTriangle, CheckCircle, Globe, Download, Trash2, Clock, Loader2 } from "lucide-react";
+import { FileText, AlertTriangle, CheckCircle, Globe, Download, Trash2, Clock, Loader2, Edit } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
 import { buildApiUrl } from "@/lib/api";
@@ -33,6 +34,7 @@ const POLLING_INTERVAL = 2000; // 2 seconds
 const Reports = () => {
   const { getCurrentCompany } = useAuth();
   const currentCompany = getCurrentCompany();
+  const navigate = useNavigate();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reportType, setReportType] = useState<'pdf' | 'html'>('pdf');
@@ -433,6 +435,18 @@ const Reports = () => {
     toast.success('Report removed from history');
   };
 
+  const handleEdit = (task: ReportTask) => {
+    // Navigate to report editor with task data
+    navigate('/reports/editor', {
+      state: {
+        taskId: task.id,
+        reportType: task.reportType,
+        fyDate: task.fyDate,
+        asOfDate: task.asOfDate
+      }
+    });
+  };
+
   const getTaskStatusBadge = (task: ReportTask) => {
     switch (task.status) {
       case 'pending':
@@ -617,8 +631,8 @@ const Reports = () => {
                         {task.status === 'completed' && (
                           <>
                             {task.reportType === 'pdf' ? (
-                              <Button 
-                                size="sm" 
+                              <Button
+                                size="sm"
                                 variant="outline"
                                 onClick={() => handleDownload(task)}
                               >
@@ -626,8 +640,8 @@ const Reports = () => {
                                 Download
                               </Button>
                             ) : (
-                              <Button 
-                                size="sm" 
+                              <Button
+                                size="sm"
                                 variant="outline"
                                 onClick={() => handleViewHtml(task)}
                               >
@@ -635,10 +649,18 @@ const Reports = () => {
                                 View
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(task)}
+                            >
+                              <Edit className="h-4 w-4 mr-1" />
+                              Edit
+                            </Button>
                           </>
                         )}
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           variant="ghost"
                           onClick={() => handleDeleteTask(task.id)}
                         >
