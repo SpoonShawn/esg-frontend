@@ -408,15 +408,22 @@ const ReportEditor = () => {
       loadTemplates();
       loadCompanyData();
 
+      // Check if navigating from Reports page with a taskId
+      // If so, skip localStorage restore to load fresh report data
+      const isNavigatingFromReports = location.state?.taskId;
+
       // Check if HTML was imported from Reports page
       const importedHtml = sessionStorage.getItem('editorImportHtml');
       if (importedHtml) {
         parseAndImportHtml(importedHtml);
         // Clear the imported HTML from sessionStorage
         sessionStorage.removeItem('editorImportHtml');
-      } else {
-        // Try to restore from localStorage (auto-save)
+      } else if (!isNavigatingFromReports) {
+        // Only restore from localStorage if NOT navigating from Reports page
+        // This ensures fresh report data is loaded when clicking Edit from Reports page
         restoreFromStorage();
+      } else {
+        console.log('📝 Navigating from Reports page, skipping localStorage restore');
       }
     }
   }, [currentCompany?.id]);
@@ -434,47 +441,7 @@ const ReportEditor = () => {
 
       console.log('📝 Loading report from navigation state:', location.state);
 
-      // First, check if there's a more recent local save
-      const storageKey = `editor_draft_${currentCompany?.id}`;
-      const savedData = localStorage.getItem(storageKey);
-
-      if (savedData) {
-        try {
-          const data = JSON.parse(savedData);
-          if (data.lastSaved && data.components.length > 0) {
-            const savedTime = new Date(data.lastSaved).getTime();
-            const now = Date.now();
-            // If saved within last 10 minutes, prefer local save
-            if (now - savedTime < 10 * 60 * 1000) {
-              console.log('✅ Found recent local save, restoring:', new Date(data.lastSaved));
-              setComponents(data.components);
-              setCurrentPage(data.currentPage || 1);
-              setImportedFromReports(data.importedFromReports || false);
-              if (data.lastSaved) {
-                setLastSavedTime(new Date(data.lastSaved));
-              }
-              // Update layouts
-              const newLayouts = data.components.map((comp: ReportComponent, i: number) => ({
-                i: comp.id,
-                x: (i % 2) * 6,
-                y: Math.floor(i / 2) * 4,
-                w: 6,
-                h: comp.type === 'chart' || comp.type === 'table' ? 6 : 4,
-                minW: 3,
-                minH: 2
-              }));
-              setLayouts({ lg: newLayouts });
-              importedTaskIdRef.current = currentTaskId;
-              toast.success('Restored your recent edits');
-              return;
-            }
-          }
-        } catch (error) {
-          console.error('Failed to restore local save:', error);
-        }
-      }
-
-      // Check if there are unsaved changes
+      // Check if there are unsaved changes in current editor
       if (hasUnsavedChanges && components.length > 0) {
         console.log('⚠️ Has unsaved changes, prompting user...');
         const shouldContinue = window.confirm(
@@ -485,6 +452,11 @@ const ReportEditor = () => {
           return;
         }
       }
+
+      // Clear any localStorage draft for this company to ensure fresh report is loaded
+      const storageKey = `editor_draft_${currentCompany?.id}`;
+      localStorage.removeItem(storageKey);
+      console.log('🗑️ Cleared localStorage draft to load fresh report');
 
       // Get the task data from localStorage
       const REPORTS_STORAGE_KEY = 'esg_report_tasks';
