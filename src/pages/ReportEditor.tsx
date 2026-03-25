@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -362,6 +362,7 @@ const ReportEditor = () => {
   const { getCurrentCompany } = useAuth();
   const currentCompany = getCurrentCompany();
   const navigate = useNavigate();
+  const location = useLocation();
   const [components, setComponents] = useState<ReportComponent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
@@ -412,6 +413,40 @@ const ReportEditor = () => {
       }
     }
   }, [currentCompany?.id]);
+
+  // Load report from navigation state (when clicking Edit button from Reports page)
+  useEffect(() => {
+    if (location.state?.taskId) {
+      console.log('📝 Loading report from navigation state:', location.state);
+
+      // Get the task data from localStorage
+      const REPORTS_STORAGE_KEY = 'esg_report_tasks';
+      const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+
+      if (stored) {
+        try {
+          const tasks = JSON.parse(stored);
+          const task = tasks.find((t: any) => t.id === location.state.taskId);
+
+          if (task && task.htmlContent) {
+            console.log('✅ Found HTML content for task:', task.id);
+            // Reset state before importing new report
+            handleResetEditor();
+            // Import the HTML content
+            parseAndImportHtml(task.htmlContent);
+            setImportedFromReports(true);
+            toast.success(`Loaded ${task.reportType.toUpperCase()} report for FY ${task.fyDate}`);
+          } else {
+            console.warn('⚠️ Task not found or no HTML content:', location.state.taskId);
+            toast.error('Report content not found');
+          }
+        } catch (error) {
+          console.error('❌ Error loading report from localStorage:', error);
+          toast.error('Failed to load report');
+        }
+      }
+    }
+  }, [location.state]); // Re-run when location.state changes
 
   // Auto-save components when they change
   useEffect(() => {
@@ -525,6 +560,20 @@ const ReportEditor = () => {
     setHistoryIndex(0);
 
     toast.success('New blank report created');
+  };
+
+  // Reset editor state before loading new report
+  const handleResetEditor = () => {
+    console.log('🔄 Resetting editor state...');
+    setComponents([]);
+    setImportedFromReports(false);
+    setCurrentPage(1);
+    setLastSavedTime(null);
+    setHasUnsavedChanges(false);
+    setHistory([]);
+    setHistoryIndex(0);
+    setSelectedId(null);
+    setPreviewMode(false);
   };
 
   // Pagination
