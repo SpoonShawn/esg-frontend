@@ -381,6 +381,7 @@ const ReportEditor = () => {
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const importedTaskIdRef = useRef<string | null>(null); // Track which task has been imported
 
   // Layout state
   const [layouts, setLayouts] = useState<any>({
@@ -417,7 +418,27 @@ const ReportEditor = () => {
   // Load report from navigation state (when clicking Edit button from Reports page)
   useEffect(() => {
     if (location.state?.taskId) {
+      const currentTaskId = location.state.taskId;
+
+      // Only import if this is a different task than the one already imported
+      if (importedTaskIdRef.current === currentTaskId) {
+        console.log('⏭️ Skipping import, same task already loaded:', currentTaskId);
+        return;
+      }
+
       console.log('📝 Loading report from navigation state:', location.state);
+
+      // Check if there are unsaved changes
+      if (hasUnsavedChanges && components.length > 0) {
+        console.log('⚠️ Has unsaved changes, prompting user...');
+        const shouldContinue = window.confirm(
+          'You have unsaved changes. Do you want to discard them and load the new report?'
+        );
+        if (!shouldContinue) {
+          console.log('❌ User cancelled, not loading new report');
+          return;
+        }
+      }
 
       // Get the task data from localStorage
       const REPORTS_STORAGE_KEY = 'esg_report_tasks';
@@ -426,7 +447,7 @@ const ReportEditor = () => {
       if (stored) {
         try {
           const tasks = JSON.parse(stored);
-          const task = tasks.find((t: any) => t.id === location.state.taskId);
+          const task = tasks.find((t: any) => t.id === currentTaskId);
 
           if (task && task.htmlContent) {
             console.log('✅ Found HTML content for task:', task.id);
@@ -435,9 +456,11 @@ const ReportEditor = () => {
             // Import the HTML content
             parseAndImportHtml(task.htmlContent);
             setImportedFromReports(true);
+            // Record that we've imported this task
+            importedTaskIdRef.current = currentTaskId;
             toast.success(`Loaded ${task.reportType.toUpperCase()} report for FY ${task.fyDate}`);
           } else {
-            console.warn('⚠️ Task not found or no HTML content:', location.state.taskId);
+            console.warn('⚠️ Task not found or no HTML content:', currentTaskId);
             toast.error('Report content not found');
           }
         } catch (error) {
@@ -446,7 +469,7 @@ const ReportEditor = () => {
         }
       }
     }
-  }, [location.state]); // Re-run when location.state changes
+  }, [location.state, hasUnsavedChanges, components]); // Re-run when location.state changes
 
   // Auto-save components when they change
   useEffect(() => {
@@ -558,6 +581,7 @@ const ReportEditor = () => {
     setHasUnsavedChanges(false);
     setHistory([]);
     setHistoryIndex(0);
+    importedTaskIdRef.current = null; // Reset imported task ID
 
     toast.success('New blank report created');
   };
@@ -574,6 +598,7 @@ const ReportEditor = () => {
     setHistoryIndex(0);
     setSelectedId(null);
     setPreviewMode(false);
+    // Don't reset importedTaskIdRef here - it will be set when new report loads
   };
 
   // Pagination
