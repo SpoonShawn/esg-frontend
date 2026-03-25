@@ -1073,31 +1073,20 @@ const ReportEditor = () => {
   const getDisplayHtml = () => {
     // For imported reports, use the original complete HTML
     if (importedFromReports && components.length > 0 && components[0].originalHtml) {
-      // Wrap in a scoped container to prevent styles from leaking
-      let html = components[0].originalHtml;
-
       // Extract the body content from complete HTML
+      let html = components[0].originalHtml;
       const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+
       if (bodyMatch) {
-        html = bodyMatch[1]; // Just use the body content
+        html = bodyMatch[1]; // Get body content
       }
 
-      // Extract style tags and wrap them with scope
-      const styleMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
-      if (styleMatch) {
-        let styles = styleMatch[1];
-        // Add scope prefix to all selectors
-        styles = styles.replace(/([^{]+){/g, '.report-preview-container $1{');
-        // Remove the original style tag
-        html = html.replace(/<style[^>]*>[\s\S]*?<\/style>/i, '');
-        // Add scoped style
-        html = `<style>${styles}</style><div class="report-preview-container">${html}</div>`;
-      } else {
-        // No style tag, just wrap content
-        html = `<div class="report-preview-container">${html}</div>`;
-      }
-
-      return html;
+      // Keep original styles intact, but wrap in a container with isolation
+      return `
+        <div class="report-html-wrapper">
+          ${html}
+        </div>
+      `;
     }
     // Otherwise, generate HTML from components
     return generateHtml();
@@ -1342,6 +1331,17 @@ const ReportEditor = () => {
 
   return (
     <Layout>
+      <style>{`
+        /* Fix: Prevent injected HTML styles from affecting the app */
+        .html-renderer-container {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        }
+
+        /* Override any body styles that might be in injected HTML */
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+        }
+      `}</style>
       <div className="space-y-4">
         {/* Header */}
         <div className="flex justify-between items-start">
