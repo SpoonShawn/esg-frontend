@@ -1137,10 +1137,35 @@ const ReportEditor = () => {
 
       // Replace logo if custom logo is uploaded
       if (logoUrl) {
-        // Find the default logo image tag and replace it
-        const defaultLogoPattern = /<img[^>]*src=["']https:\/\/esg-frontend-zeta\.vercel\.app\/Light%20background%20logo\.png["'][^>]*class=["']cover-logo["'][^>]*\/>/gi;
-        html = html.replace(defaultLogoPattern, `<img src="${logoUrl}" alt="Company Logo" class="cover-logo" />`);
-        console.log('✅ Logo replaced with custom logo');
+        console.log('🔍 Attempting to replace logo, logoUrl:', logoUrl);
+
+        // Try multiple patterns to match the default logo with different attribute orders
+        const logoPatterns = [
+          // Pattern 1: src first, then class (with or without trailing /)
+          /<img[^>]*src=["'][^"']*Light%20background%20logo\.png[^"']*["'][^>]*class=["']cover-logo["'][^>]*>/gi,
+          // Pattern 2: class first, then src (with or without trailing /)
+          /<img[^>]*class=["']cover-logo["'][^>]*src=["'][^"']*Light%20background%20logo\.png[^"']*["'][^>]*>/gi,
+          // Pattern 3: Just match any img with cover-logo class containing the logo URL
+          /<img[^>]*class=["']cover-logo["'][^>]*src=["'][^"']*esg-frontend-zeta\.vercel\.app[^"']*["'][^>]*>/gi
+        ];
+
+        let replaced = false;
+        for (const pattern of logoPatterns) {
+          const match = html.match(pattern);
+          if (match) {
+            console.log('✅ Found logo pattern:', match[0]);
+            html = html.replace(pattern, `<img src="${logoUrl}" alt="Company Logo" class="cover-logo">`);
+            console.log('✅ Logo replaced successfully');
+            replaced = true;
+            break;
+          }
+        }
+
+        if (!replaced) {
+          console.log('⚠️ Logo replacement failed - no matching pattern found');
+          console.log('🔍 HTML contains cover-logo:', html.includes('cover-logo'));
+          console.log('🔍 HTML contains Light%20background%20logo.png:', html.includes('Light%20background%20logo.png'));
+        }
       }
 
       return html;
@@ -1496,10 +1521,6 @@ const ReportEditor = () => {
             <Button variant="outline" onClick={exportPdf} disabled={isLoading}>
               <Download className="h-4 w-4 mr-2" />
               PDF
-            </Button>
-            <Button onClick={saveToStorage}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Now
             </Button>
             <Button
               variant="outline"
