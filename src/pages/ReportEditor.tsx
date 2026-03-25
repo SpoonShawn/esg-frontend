@@ -1073,8 +1073,13 @@ const ReportEditor = () => {
   const getDisplayHtml = () => {
     // For imported reports, use the original complete HTML
     if (importedFromReports && components.length > 0 && components[0].originalHtml) {
+      const html = components[0].originalHtml;
+      console.log('📄 Display HTML length:', html.length);
+      console.log('📄 HTML starts with:', html.substring(0, 100));
+      console.log('📄 Has <style> tag:', html.includes('<style>'));
+      console.log('📄 Has CSS colors:', html.includes('#1e40af') || html.includes('primary'));
       // Simply return the original HTML without any modifications
-      return components[0].originalHtml;
+      return html;
     }
     // Otherwise, generate HTML from components
     return generateHtml();
@@ -1432,9 +1437,9 @@ const ReportEditor = () => {
             ) : previewMode ? (
               <iframe
                 srcDoc={getDisplayHtml()}
-                className="w-full min-h-[800px] border-0"
+                className="w-full h-full border-0"
+                style={{ minHeight: '800px' }}
                 title="ESG Report Preview"
-                sandbox="allow-same-origin"
               />
             ) : (
               <div
