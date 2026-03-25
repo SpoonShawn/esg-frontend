@@ -56,6 +56,12 @@ const Reports = () => {
   // Report tasks
   const [tasks, setTasks] = useState<ReportTask[]>([]);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const tasksRef = useRef<ReportTask[]>([]);
+
+  // Keep tasksRef in sync with tasks
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   // Load tasks from localStorage on mount
   useEffect(() => {
@@ -77,15 +83,28 @@ const Reports = () => {
   }, [currentCompany?.id]);
 
   // Start polling for task updates
-  const startPolling = useCallback(() => {
+  const startPolling = () => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
     }
 
+    console.log('🔄 Starting report generation polling...');
+
     pollingRef.current = setInterval(() => {
-      updatePendingTasks();
+      // Use ref to get latest tasks
+      const currentTasks = tasksRef.current;
+      const pendingTasks = currentTasks.filter(task => 
+        task.status === 'pending' || task.status === 'generating'
+      );
+
+      if (pendingTasks.length > 0) {
+        console.log(`📊 Processing ${pendingTasks.length} pending/generating tasks...`);
+        pendingTasks.forEach(task => {
+          generateReportInBackground(task);
+        });
+      }
     }, POLLING_INTERVAL);
-  }, []);
+  };
 
   // Load tasks from localStorage
   const loadTasks = () => {
@@ -103,11 +122,14 @@ const Reports = () => {
         });
         
         setTasks(validTasks);
+        tasksRef.current = validTasks;
         
         // Clean up old tasks in storage
         if (validTasks.length !== parsedTasks.length) {
           localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(validTasks));
         }
+
+        console.log(`📋 Loaded ${validTasks.length} tasks from storage`);
       }
     } catch (error) {
       console.error('Error loading tasks:', error);
@@ -119,30 +141,25 @@ const Reports = () => {
     try {
       localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
       setTasks(updatedTasks);
+      tasksRef.current = updatedTasks;
     } catch (error) {
       console.error('Error saving tasks:', error);
       toast.error('Failed to save report task');
     }
   };
 
-  // Update pending tasks by checking their status
-  const updatePendingTasks = useCallback(async () => {
-    const pendingTasks = tasks.filter(task => 
-      task.status === 'pending' || task.status === 'generating'
-    );
-
-    if (pendingTasks.length === 0) {
+  // Generate report in background
+  const generateReportInBackground = async (task: ReportTask) => {
+    // Prevent duplicate generation for already completed/failed tasks
+    const currentTasks = tasksRef.current;
+    const currentTask = currentTasks.find(t => t.id === task.id);
+    
+    if (!currentTask || currentTask.status === 'completed' || currentTask.status === 'failed') {
       return;
     }
 
-    // Update tasks that are still pending/generating
-    for (const task of pendingTasks) {
-      await generateReportInBackground(task);
-    }
-  }, [tasks]);
+    console.log(`🚀 Starting generation for task ${task.id} (${task.reportType})`);
 
-  // Generate report in background
-  const generateReportInBackground = async (task: ReportTask) => {
     try {
       const updateTask = (updates: Partial<ReportTask>) => {
         setTasks(prevTasks => 
@@ -159,6 +176,7 @@ const Reports = () => {
             t.id === task.id ? { ...t, ...updates } : t
           );
           localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+          tasksRef.current = updatedTasks;
         }
       };
 
@@ -175,8 +193,12 @@ const Reports = () => {
 
       updateTask({ progress: 50 });
 
+      console.log(`📡 Calling API: ${apiUrl}`);
+
       const response = await fetch(apiUrl, { method: 'GET' });
       updateTask({ progress: 80 });
+
+      console.log(`📡 API Response status: ${response.status}`);
 
       if (response.ok) {
         if (task.reportType === 'pdf') {
@@ -191,6 +213,7 @@ const Reports = () => {
             downloadUrl: url
           });
 
+          console.log(`✅ PDF Report completed for ${task.fyDate}`);
           toast.success(`PDF Report for ${task.fyDate} is ready!`);
         } else {
           // Get HTML content
@@ -203,6 +226,7 @@ const Reports = () => {
             htmlContent: htmlContent
           });
 
+          console.log(`✅ HTML Report completed for ${task.fyDate}`);
           toast.success(`HTML Report for ${task.fyDate} is ready!`);
         }
       } else {
@@ -210,7 +234,7 @@ const Reports = () => {
         throw new Error(errorData.detail || 'Report generation failed');
       }
     } catch (error) {
-      console.error('Error generating report in background:', error);
+      console.error('❌ Error generating report in background:', error);
       
       setTasks(prevTasks => 
         prevTasks.map(t => 
@@ -224,6 +248,24 @@ const Reports = () => {
             : t
         )
       );
+
+      // Update localStorage
+      const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+      if (stored) {
+        const parsedTasks: ReportTask[] = JSON.parse(stored);
+        const updatedTasks = parsedTasks.map(t => 
+          t.id === task.id 
+            ? { 
+                ...t, 
+                status: 'failed' as const, 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                progress: 0
+              } 
+            : t
+        );
+        localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+        tasksRef.current = updatedTasks;
+      }
 
       toast.error(`Failed to generate ${task.reportType.toUpperCase()} report`);
     }
@@ -346,13 +388,19 @@ const Reports = () => {
       createdAt: new Date().toISOString()
     };
 
+    console.log('📝 Creating new report task:', newTask);
+
     // Add to tasks
     const updatedTasks = [newTask, ...tasks];
     saveTasks(updatedTasks);
 
     setIsModalOpen(false);
     
-    // Start background generation
+    // Start background generation immediately
+    setTimeout(() => {
+      generateReportInBackground(newTask);
+    }, 100);
+    
     toast.info(`${reportType.toUpperCase()} report generation started. You can navigate away and come back later!`);
     
     // Reset form
