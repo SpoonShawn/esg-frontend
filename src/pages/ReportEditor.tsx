@@ -1319,20 +1319,6 @@ const ReportEditor = () => {
 
   return (
     <Layout>
-      <style>{`
-        /* Only protect app UI from style leakage, don't touch report content */
-        body > div,
-        nav,
-        .Layout > * {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
-        }
-
-        /* Let report HTML render with its own styles */
-        .html-renderer-container body,
-        .html-renderer-container body * {
-          font-family: inherit !important;
-        }
-      `}</style>
       <div className="space-y-4">
         {/* Header */}
         <div className="flex justify-between items-start">
@@ -1444,10 +1430,11 @@ const ReportEditor = () => {
                 </div>
               </div>
             ) : previewMode ? (
-              <div
-                dangerouslySetInnerHTML={{
-                  __html: getDisplayHtml()
-                }}
+              <iframe
+                srcDoc={getDisplayHtml()}
+                className="w-full min-h-[800px] border-0"
+                title="ESG Report Preview"
+                sandbox="allow-same-origin"
               />
             ) : (
               <div
