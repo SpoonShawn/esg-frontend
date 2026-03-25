@@ -9,8 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Layout } from "@/components/Layout";
 import {
-  Eye, Download, Save, Undo, Redo, Type, Image, BarChart3,
-  Table, Text, Palette, Settings, Plus, Trash2, FolderOpen, Sparkles, ArrowLeft, FileText
+  Eye, Download, Save, Undo, Redo, Type, Image as ImageIcon, BarChart3,
+  Table, Text, Palette, Settings, Plus, Trash2, FolderOpen, Sparkles, ArrowLeft, FileText, Upload
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
@@ -383,6 +383,12 @@ const ReportEditor = () => {
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
   const importedTaskIdRef = useRef<string | null>(null); // Track which task has been imported
 
+  // Logo state
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [showLogoUpload, setShowLogoUpload] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
   // Layout state
   const [layouts, setLayouts] = useState<any>({
     lg: generateLayouts(components)
@@ -534,6 +540,41 @@ const ReportEditor = () => {
     };
   }, [components]);
 
+  // Handle logo upload
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Logo file size must be less than 5MB');
+      return;
+    }
+
+    setUploadingLogo(true);
+
+    try {
+      // Create a blob URL for preview (client-side only)
+      const objectUrl = URL.createObjectURL(file);
+      setLogoUrl(objectUrl);
+      setLogoPreview(objectUrl);
+
+      toast.success('Logo uploaded successfully!');
+      setShowLogoUpload(false);
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      toast.error('Failed to upload logo');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   // Save to localStorage
   const saveToStorage = () => {
     if (!currentCompany?.id) return;
@@ -545,6 +586,7 @@ const ReportEditor = () => {
         theme,
         currentPage,
         importedFromReports,
+        logoUrl: logoUrl, // Save logo URL
         lastSaved: new Date().toISOString()
       };
       localStorage.setItem(storageKey, JSON.stringify(data));
@@ -568,6 +610,12 @@ const ReportEditor = () => {
         setComponents(data.components || []);
         setCurrentPage(data.currentPage || 1);
         setImportedFromReports(data.importedFromReports || false);
+
+        // Restore logo if exists
+        if (data.logoUrl) {
+          setLogoUrl(data.logoUrl);
+          setLogoPreview(data.logoUrl);
+        }
 
         if (data.lastSaved) {
           setLastSavedTime(new Date(data.lastSaved));
@@ -1081,12 +1129,20 @@ const ReportEditor = () => {
   const getDisplayHtml = () => {
     // For imported reports, use the original complete HTML
     if (importedFromReports && components.length > 0 && components[0].originalHtml) {
-      const html = components[0].originalHtml;
+      let html = components[0].originalHtml;
       console.log('📄 Display HTML length:', html.length);
       console.log('📄 HTML starts with:', html.substring(0, 100));
       console.log('📄 Has <style> tag:', html.includes('<style>'));
       console.log('📄 Has CSS colors:', html.includes('#1e40af') || html.includes('primary'));
-      // Simply return the original HTML without any modifications
+
+      // Replace logo if custom logo is uploaded
+      if (logoUrl) {
+        // Find the default logo image tag and replace it
+        const defaultLogoPattern = /<img[^>]*src=["']https:\/\/esg-frontend-zeta\.vercel\.app\/Light%20background%20logo\.png["'][^>]*class=["']cover-logo["'][^>]*\/>/gi;
+        html = html.replace(defaultLogoPattern, `<img src="${logoUrl}" alt="Company Logo" class="cover-logo" />`);
+        console.log('✅ Logo replaced with custom logo');
+      }
+
       return html;
     }
     // Otherwise, generate HTML from components
@@ -1412,6 +1468,15 @@ const ReportEditor = () => {
               <Save className="h-4 w-4 mr-2" />
               Save Now
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowLogoUpload(true)}
+              className="flex items-center gap-2"
+              title="Upload company logo for report cover page"
+            >
+              <Upload className="h-4 w-4" />
+              {logoUrl ? "Update Logo" : "Upload Logo"}
+            </Button>
           </div>
         </div>
 
@@ -1489,6 +1554,81 @@ const ReportEditor = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Logo Upload Dialog */}
+      <Dialog open={showLogoUpload} onOpenChange={setShowLogoUpload}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload Company Logo</DialogTitle>
+            <DialogDescription>
+              Upload your company logo to display on the report cover page
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Logo Preview */}
+            <div className="flex items-center justify-center gap-4 p-6 border-2 border-dashed rounded-lg">
+              {logoPreview ? (
+                <img
+                  src={logoPreview}
+                  alt="Logo Preview"
+                  className="w-32 h-32 object-contain"
+                />
+              ) : (
+                <div className="text-center p-4">
+                  <ImageIcon className="h-12 w-12 mx-auto text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-500">No logo selected</p>
+                </div>
+              )}
+            </div>
+
+            {/* Upload Button */}
+            <div className="space-y-2">
+              <input
+                type="file"
+                id="logo-upload"
+                accept="image/png,image/jpeg,image/jpg"
+                onChange={handleLogoUpload}
+                disabled={uploadingLogo}
+                className="hidden"
+              />
+              <Label
+                htmlFor="logo-upload"
+                className={`flex items-center justify-center gap-2 w-full px-4 py-2 border rounded-md cursor-pointer transition-colors ${
+                  uploadingLogo
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-accent'
+                }`}
+              >
+                <Upload className="h-4 w-4" />
+                {uploadingLogo ? 'Uploading...' : 'Choose Logo Image'}
+              </Label>
+              <p className="text-xs text-muted-foreground text-center">
+                Recommended: PNG or JPG, max 5MB
+              </p>
+            </div>
+
+            {/* Current Logo Actions */}
+            {logoUrl && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setLogoUrl(null);
+                    setLogoPreview(null);
+                    toast.success('Logo removed');
+                  }}
+                >
+                  Remove Logo
+                </Button>
+                <Button onClick={() => setShowLogoUpload(false)}>
+                  Done
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Template Management Dialog */}
       <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
