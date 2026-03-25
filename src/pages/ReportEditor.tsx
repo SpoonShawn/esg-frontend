@@ -694,6 +694,12 @@ const ReportEditor = () => {
   };
 
   const parseAndImportHtml = (htmlContent: string) => {
+    console.log('🔍 parseAndImportHtml received HTML length:', htmlContent.length);
+    console.log('🔍 HTML starts with:', htmlContent.substring(0, 200));
+    console.log('🔍 Has DOCTYPE:', htmlContent.includes('<!DOCTYPE'));
+    console.log('🔍 Has <html> tag:', htmlContent.includes('<html'));
+    console.log('🔍 Has <style> tag:', htmlContent.includes('<style'));
+
     // Create a temporary DOM element to parse HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -815,6 +821,8 @@ const ReportEditor = () => {
 
     // Store the complete original HTML in the first component
     if (importedComponents.length > 0) {
+      console.log('💾 Storing original HTML, length:', htmlContent.length);
+      console.log('💾 Original HTML starts with:', htmlContent.substring(0, 200));
       importedComponents[0].originalHtml = htmlContent;
       console.log('✓ Complete original HTML stored in first component');
     }
