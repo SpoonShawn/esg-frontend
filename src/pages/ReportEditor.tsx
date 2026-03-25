@@ -428,6 +428,46 @@ const ReportEditor = () => {
 
       console.log('📝 Loading report from navigation state:', location.state);
 
+      // First, check if there's a more recent local save
+      const storageKey = `editor_draft_${currentCompany?.id}`;
+      const savedData = localStorage.getItem(storageKey);
+
+      if (savedData) {
+        try {
+          const data = JSON.parse(savedData);
+          if (data.lastSaved && data.components.length > 0) {
+            const savedTime = new Date(data.lastSaved).getTime();
+            const now = Date.now();
+            // If saved within last 10 minutes, prefer local save
+            if (now - savedTime < 10 * 60 * 1000) {
+              console.log('✅ Found recent local save, restoring:', new Date(data.lastSaved));
+              setComponents(data.components);
+              setCurrentPage(data.currentPage || 1);
+              setImportedFromReports(data.importedFromReports || false);
+              if (data.lastSaved) {
+                setLastSavedTime(new Date(data.lastSaved));
+              }
+              // Update layouts
+              const newLayouts = data.components.map((comp: ReportComponent, i: number) => ({
+                i: comp.id,
+                x: (i % 2) * 6,
+                y: Math.floor(i / 2) * 4,
+                w: 6,
+                h: comp.type === 'chart' || comp.type === 'table' ? 6 : 4,
+                minW: 3,
+                minH: 2
+              }));
+              setLayouts({ lg: newLayouts });
+              importedTaskIdRef.current = currentTaskId;
+              toast.success('Restored your recent edits');
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Failed to restore local save:', error);
+        }
+      }
+
       // Check if there are unsaved changes
       if (hasUnsavedChanges && components.length > 0) {
         console.log('⚠️ Has unsaved changes, prompting user...');
