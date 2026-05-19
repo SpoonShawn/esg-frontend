@@ -14,7 +14,7 @@ import {
   TrendingUp,
   Mail,
   Edit3,
-  MessageSquare
+  Bot
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
@@ -37,7 +37,7 @@ export const Layout = ({ children }: LayoutProps) => {
     { name: "Reports", href: "/reports", icon: FileText },
     { name: "Report Editor", href: "/reports/editor", icon: Edit3 },
     { name: "AI", href: "/ai", icon: Brain },
-    { name: "Email Bot", href: "/email-bot", icon: MessageSquare },
+    { name: "Email Bot", href: "/email-bot", icon: Bot },
   ];
 
 
