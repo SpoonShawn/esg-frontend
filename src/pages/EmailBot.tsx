@@ -320,8 +320,8 @@ export default function EmailBot() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold flex items-center gap-2">
-              <MessageSquare className="h-8 w-8 text-blue-600" /> Email Bot
+            <h1 className="text-3xl font-bold">
+              Email Bot
             </h1>
             <p className="text-muted-foreground mt-1">
               Automate ESG data collection via email surveys
