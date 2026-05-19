@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,10 +8,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Layout } from "@/components/Layout";
-import { Plus, Calendar, Tag, TrendingDown, Edit2, Check, X } from "lucide-react";
+import { Plus, Calendar, Tag, TrendingDown, Edit2, Check, X, Scan, ImageIcon, Loader2 } from "lucide-react";
 import { useActivities, Activity, ActivityCreate, ActivityCreateResponse, useAuth, useBusinessCategories } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { FollowUpQuestionsModal } from "@/components/FollowUpQuestionsModal";
+import { buildApiUrl } from "@/lib/api";
 
 const Activities = () => {
   const [newActivity, setNewActivity] = useState("");
@@ -28,6 +29,15 @@ const Activities = () => {
   const [editingActivity, setEditingActivity] = useState<number | null>(null);
   const [editingField, setEditingField] = useState<'name' | 'date' | null>(null);
   const [editValues, setEditValues] = useState<{name: string, date: string}>({name: "", date: ""});
+
+  // OCR state
+  const [showOCRModal, setShowOCRModal] = useState(false);
+  const [ocrImage, setOcrImage] = useState<string | null>(null);
+  const [ocrImagePreview, setOcrImagePreview] = useState<string | null>(null);
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrResult, setOcrResult] = useState<string>("");
+  const [ocrConfidence, setOcrConfidence] = useState<number>(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     activities,
@@ -229,7 +239,7 @@ const Activities = () => {
       }
 
       const updatedActivity = await updateActivity(activityId, updateData);
-      
+
       if (updatedActivity) {
         toast.success(`Activity ${editingField} updated successfully!`);
         cancelEditing();
@@ -241,6 +251,97 @@ const Activities = () => {
       console.error("Error updating activity:", error);
       toast.error(`Failed to update activity ${editingField}`);
     }
+  };
+
+  // OCR Functions
+  const handleOCRImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image file size must be less than 10MB');
+      return;
+    }
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      setOcrImagePreview(result);
+      setOcrImage(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const processOCR = async () => {
+    if (!ocrImage) {
+      toast.error('Please upload an image first');
+      return;
+    }
+
+    setOcrProcessing(true);
+    setOcrResult("");
+
+    try {
+      // Call OCR API with base64 image
+      const token = localStorage.getItem('token');
+      const response = await fetch(buildApiUrl('/api/activities/ocr/base64'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ image: ocrImage })
+      });
+
+      if (!response.ok) {
+        throw new Error('OCR processing failed');
+      }
+
+      const data = await response.json();
+
+      if (data.text) {
+        setOcrResult(data.text);
+        setOcrConfidence(data.confidence);
+        toast.success(`Text extracted successfully! Confidence: ${(data.confidence * 100).toFixed(1)}%`);
+      } else {
+        toast.warning('No text detected in the image');
+      }
+    } catch (error) {
+      console.error('OCR Error:', error);
+      toast.error('Failed to extract text from image');
+    } finally {
+      setOcrProcessing(false);
+    }
+  };
+
+  const useOCRResult = () => {
+    if (ocrResult) {
+      setNewActivity(ocrResult);
+      setShowOCRModal(false);
+      // Reset OCR state
+      setOcrImage(null);
+      setOcrImagePreview(null);
+      setOcrResult("");
+      setOcrConfidence(0);
+      toast.success('OCR text added to activity description');
+    }
+  };
+
+  const closeOCRModal = () => {
+    setShowOCRModal(false);
+    // Reset OCR state
+    setOcrImage(null);
+    setOcrImagePreview(null);
+    setOcrResult("");
+    setOcrConfidence(0);
   };
 
   const getCategoryColor = (category: string) => {
@@ -299,7 +400,19 @@ const Activities = () => {
           <CardContent>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="activity">Activity Description</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="activity">Activity Description</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowOCRModal(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <Scan className="h-4 w-4" />
+                    Scan Image
+                  </Button>
+                </div>
                 <Textarea
                   id="activity"
                   placeholder="e.g., Installed LED lighting in office building, Organized employee carpooling program..."
@@ -308,7 +421,7 @@ const Activities = () => {
                   className="min-h-[100px]"
                 />
               </div>
-              
+
               {/* Add Date Picker */}
               <div className="space-y-2">
                 <Label htmlFor="activity-date">When did this activity occur?</Label>
@@ -321,10 +434,10 @@ const Activities = () => {
                   max={new Date().toISOString().split('T')[0]} // Don't allow future dates
                 />
               </div>
-              
-              <Button 
+
+              <Button
                 onClick={handleSubmit}
-                disabled={createLoading || !newActivity.trim()} 
+                disabled={createLoading || !newActivity.trim()}
                 className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
               >
                 {createLoading ? "Processing with AI..." : "Add Activity"}
@@ -332,6 +445,125 @@ const Activities = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* OCR Modal */}
+        <Dialog open={showOCRModal} onOpenChange={closeOCRModal}>
+          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Scan className="h-5 w-5" />
+                OCR Text Extraction
+              </DialogTitle>
+              <DialogDescription>
+                Upload an image to extract text using AI-powered OCR
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              {/* Image Upload Area */}
+              <div className="space-y-2">
+                <Label>Upload Image</Label>
+                <div className="flex items-center gap-4">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg"
+                    onChange={handleOCRImageUpload}
+                    disabled={ocrProcessing}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={ocrProcessing}
+                    className="flex items-center gap-2"
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                    Choose Image
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    PNG, JPG up to 10MB
+                  </span>
+                </div>
+              </div>
+
+              {/* Image Preview */}
+              {ocrImagePreview && (
+                <div className="space-y-2">
+                  <Label>Preview</Label>
+                  <div className="border rounded-lg p-4 bg-muted/30">
+                    <img
+                      src={ocrImagePreview}
+                      alt="Preview"
+                      className="max-w-full max-h-[300px] mx-auto rounded"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Process Button */}
+              {ocrImagePreview && !ocrResult && (
+                <Button
+                  onClick={processOCR}
+                  disabled={ocrProcessing}
+                  className="w-full"
+                >
+                  {ocrProcessing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Processing OCR...
+                    </>
+                  ) : (
+                    <>
+                      <Scan className="h-4 w-4 mr-2" />
+                      Extract Text
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {/* OCR Result */}
+              {ocrResult && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Extracted Text</Label>
+                    <Badge variant="outline" className="text-xs">
+                      Confidence: {(ocrConfidence * 100).toFixed(1)}%
+                    </Badge>
+                  </div>
+                  <Textarea
+                    value={ocrResult}
+                    onChange={(e) => setOcrResult(e.target.value)}
+                    className="min-h-[150px] font-mono text-sm"
+                    placeholder="Extracted text will appear here..."
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={useOCRResult}
+                      className="flex-1"
+                    >
+                      Use This Text
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setOcrResult("");
+                        setOcrImage(null);
+                        setOcrImagePreview(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = "";
+                        }
+                      }}
+                      variant="outline"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={showCategorySelection} onOpenChange={setShowCategorySelection}>
           <DialogContent className="sm:max-w-[500px]">

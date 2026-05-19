@@ -1,51 +1,47 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Layout } from "@/components/Layout";
-import { FileText, AlertTriangle, CheckCircle, Globe, Download, Printer, Edit3 } from "lucide-react";
+import { FileText, AlertTriangle, CheckCircle, Globe, Download, Trash2, Clock, Loader2, Edit } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
 import { buildApiUrl } from "@/lib/api";
+
+// Types for report tasks
+interface ReportTask {
+  id: string;
+  companyId: number;
+  reportType: 'pdf' | 'html';
+  asOfDate: string;
+  fyDate: string;
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+  progress: number;
+  createdAt: string;
+  completedAt?: string;
+  downloadUrl?: string;
+  htmlContent?: string;
+  error?: string;
+}
+
+const REPORTS_STORAGE_KEY = 'esg_report_tasks';
+const POLLING_INTERVAL = 2000; // 2 seconds
 
 const Reports = () => {
   const { getCurrentCompany } = useAuth();
   const currentCompany = getCurrentCompany();
   const navigate = useNavigate();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isGeneratingHtml, setIsGeneratingHtml] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reportType, setReportType] = useState<'pdf' | 'html'>('pdf');
   const [htmlReportContent, setHtmlReportContent] = useState<string | null>(null);
   const [showHtmlReport, setShowHtmlReport] = useState(false);
-
-  // Chapter selection
-  const [availableChapters, setAvailableChapters] = useState<any>(null);
-  const [selectedChapters, setSelectedChapters] = useState<string[]>([
-    'executive_summary', 'about_report', 'about_us',
-    'sustainability_targets', 'emissions_disclosure',
-    'ai_recommendations', 'performance_tables'
-  ]);
-
-  // Theme customization
-  const [availableThemes, setAvailableThemes] = useState<any>(null);
-  const [selectedTheme, setSelectedTheme] = useState<string>('corporate_blue');
-  const [headingFont, setHeadingFont] = useState<string>('times_new_roman');
-  const [bodyFont, setBodyFont] = useState<string>('times_new_roman');
-  const [customPrimaryColor, setCustomPrimaryColor] = useState<string>('');
-  const [customAccentColor, setCustomAccentColor] = useState<string>('');
-
-  // Saved reports
-  const [savedReports, setSavedReports] = useState<any[]>([]);
-
-  // Get current date and year for defaults
+  
+  // Dates
   const today = new Date();
   const currentYear = today.getFullYear();
   const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
@@ -54,58 +50,228 @@ const Reports = () => {
   
   const [asOfDate, setAsOfDate] = useState(currentDate);
   const [fyDate, setFyDate] = useState(currentYear.toString());
+  
+  // Company details
   const [companyDetails, setCompanyDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  
+  // Report tasks
+  const [tasks, setTasks] = useState<ReportTask[]>([]);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const tasksRef = useRef<ReportTask[]>([]);
 
-  // Define loadSavedReports BEFORE useEffect to avoid reference errors
-  // Temporarily disabled due to rendering issues
-  const loadSavedReports = () => {
-    console.log('loadSavedReports called - disabled');
-    // setSavedReports([]); // Don't update state to prevent issues
-  };
+  // Keep tasksRef in sync with tasks
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
-  // Load company details on component mount
+  // Load tasks from localStorage on mount
+  useEffect(() => {
+    loadTasks();
+    startPolling();
+    
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
+  // Load company details
   useEffect(() => {
     if (currentCompany?.id) {
       loadCompanyDetails();
-      loadAvailableChapters();
-      loadAvailableThemes();
     }
   }, [currentCompany?.id]);
 
-  const loadAvailableThemes = async () => {
+  // Start polling for task updates
+  const startPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+    }
+
+    console.log('🔄 Starting report generation polling...');
+
+    pollingRef.current = setInterval(() => {
+      // Use ref to get latest tasks
+      const currentTasks = tasksRef.current;
+      const pendingTasks = currentTasks.filter(task => 
+        task.status === 'pending' || task.status === 'generating'
+      );
+
+      if (pendingTasks.length > 0) {
+        console.log(`📊 Processing ${pendingTasks.length} pending/generating tasks...`);
+        pendingTasks.forEach(task => {
+          generateReportInBackground(task);
+        });
+      }
+    }, POLLING_INTERVAL);
+  };
+
+  // Load tasks from localStorage
+  const loadTasks = () => {
     try {
-      const response = await fetch(buildApiUrl('/api/reports/themes'));
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableThemes(data);
+      const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+      if (stored) {
+        const parsedTasks: ReportTask[] = JSON.parse(stored);
+        // Filter out old tasks (older than 7 days)
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        
+        const validTasks = parsedTasks.filter(task => {
+          const taskDate = new Date(task.createdAt);
+          return taskDate > weekAgo;
+        });
+        
+        setTasks(validTasks);
+        tasksRef.current = validTasks;
+        
+        // Clean up old tasks in storage
+        if (validTasks.length !== parsedTasks.length) {
+          localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(validTasks));
+        }
+
+        console.log(`📋 Loaded ${validTasks.length} tasks from storage`);
       }
     } catch (error) {
-      console.error('Error loading themes:', error);
+      console.error('Error loading tasks:', error);
     }
   };
 
-  const loadAvailableChapters = async () => {
+  // Save tasks to localStorage
+  const saveTasks = (updatedTasks: ReportTask[]) => {
     try {
-      const response = await fetch(buildApiUrl('/api/reports/chapters'));
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableChapters(data);
-      }
+      localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+      setTasks(updatedTasks);
+      tasksRef.current = updatedTasks;
     } catch (error) {
-      console.error('Error loading chapters:', error);
+      console.error('Error saving tasks:', error);
+      toast.error('Failed to save report task');
     }
   };
 
-  const toggleChapter = (chapterId: string) => {
-    setSelectedChapters(prev =>
-      prev.includes(chapterId)
-        ? prev.filter(id => id !== chapterId)
-        : [...prev, chapterId]
-    );
-  };
+  // Generate report in background
+  const generateReportInBackground = async (task: ReportTask) => {
+    // Prevent duplicate generation for already completed/failed tasks
+    const currentTasks = tasksRef.current;
+    const currentTask = currentTasks.find(t => t.id === task.id);
+    
+    if (!currentTask || currentTask.status === 'completed' || currentTask.status === 'failed') {
+      return;
+    }
 
-  const isChapterSelected = (chapterId: string) => selectedChapters.includes(chapterId);
+    console.log(`🚀 Starting generation for task ${task.id} (${task.reportType})`);
+
+    try {
+      const updateTask = (updates: Partial<ReportTask>) => {
+        setTasks(prevTasks => 
+          prevTasks.map(t => 
+            t.id === task.id ? { ...t, ...updates } : t
+          )
+        );
+        
+        // Also update in localStorage
+        const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+        if (stored) {
+          const parsedTasks: ReportTask[] = JSON.parse(stored);
+          const updatedTasks = parsedTasks.map(t => 
+            t.id === task.id ? { ...t, ...updates } : t
+          );
+          localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+          tasksRef.current = updatedTasks;
+        }
+      };
+
+      // Mark as generating
+      updateTask({ status: 'generating', progress: 10 });
+
+      // Call the appropriate API based on report type
+      let apiUrl: string;
+      if (task.reportType === 'pdf') {
+        apiUrl = buildApiUrl(`/api/reports/generate?company_id=${task.companyId}&as_of_date=${task.asOfDate}&fy_date=${task.fyDate}`);
+      } else {
+        apiUrl = buildApiUrl(`/api/reports/generate-html?company_id=${task.companyId}&as_of_date=${task.asOfDate}&fy_date=${task.fyDate}`);
+      }
+
+      updateTask({ progress: 50 });
+
+      console.log(`📡 Calling API: ${apiUrl}`);
+
+      const response = await fetch(apiUrl, { method: 'GET' });
+      updateTask({ progress: 80 });
+
+      console.log(`📡 API Response status: ${response.status}`);
+
+      if (response.ok) {
+        if (task.reportType === 'pdf') {
+          // Get the PDF blob
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          
+          updateTask({
+            status: 'completed',
+            progress: 100,
+            completedAt: new Date().toISOString(),
+            downloadUrl: url
+          });
+
+          console.log(`✅ PDF Report completed for ${task.fyDate}`);
+          toast.success(`PDF Report for ${task.fyDate} is ready!`);
+        } else {
+          // Get HTML content
+          const htmlContent = await response.text();
+          
+          updateTask({
+            status: 'completed',
+            progress: 100,
+            completedAt: new Date().toISOString(),
+            htmlContent: htmlContent
+          });
+
+          console.log(`✅ HTML Report completed for ${task.fyDate}`);
+          toast.success(`HTML Report for ${task.fyDate} is ready!`);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Generation failed' }));
+        throw new Error(errorData.detail || 'Report generation failed');
+      }
+    } catch (error) {
+      console.error('❌ Error generating report in background:', error);
+      
+      setTasks(prevTasks => 
+        prevTasks.map(t => 
+          t.id === task.id 
+            ? { 
+                ...t, 
+                status: 'failed' as const, 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                progress: 0
+              } 
+            : t
+        )
+      );
+
+      // Update localStorage
+      const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+      if (stored) {
+        const parsedTasks: ReportTask[] = JSON.parse(stored);
+        const updatedTasks = parsedTasks.map(t => 
+          t.id === task.id 
+            ? { 
+                ...t, 
+                status: 'failed' as const, 
+                error: error instanceof Error ? error.message : 'Unknown error',
+                progress: 0
+              } 
+            : t
+        );
+        localStorage.setItem(REPORTS_STORAGE_KEY, JSON.stringify(updatedTasks));
+        tasksRef.current = updatedTasks;
+      }
+
+      toast.error(`Failed to generate ${task.reportType.toUpperCase()} report`);
+    }
+  };
 
   const loadCompanyDetails = async () => {
     if (!currentCompany?.id) return;
@@ -139,7 +305,6 @@ const Reports = () => {
 
     const { website, description, workforce_data } = companyDetails;
     
-    // Check basic company info
     if (!website || !description) {
       return {
         isValid: false,
@@ -147,7 +312,6 @@ const Reports = () => {
       };
     }
 
-    // Check workforce data
     if (!workforce_data) {
       return {
         isValid: false,
@@ -157,7 +321,6 @@ const Reports = () => {
 
     const { age_bands, gender, employment_type, turnover, training } = workforce_data;
 
-    // Check age bands
     if (!age_bands || Object.values(age_bands).some(val => val === null || val === undefined)) {
       return {
         isValid: false,
@@ -165,7 +328,6 @@ const Reports = () => {
       };
     }
 
-    // Check gender
     if (!gender || (!gender.male && !gender.female && !gender.non_binary)) {
       return {
         isValid: false,
@@ -173,7 +335,6 @@ const Reports = () => {
       };
     }
 
-    // Check employment type
     if (!employment_type || !employment_type.full_time || !employment_type.part_time) {
       return {
         isValid: false,
@@ -181,7 +342,6 @@ const Reports = () => {
       };
     }
 
-    // Check turnover
     if (!turnover || Object.values(turnover).some(val => val === null || val === undefined)) {
       return {
         isValid: false,
@@ -189,7 +349,6 @@ const Reports = () => {
       };
     }
 
-    // Check training
     if (!training || !training.trained_total || !training.employees_end_fy) {
       return {
         isValid: false,
@@ -201,14 +360,6 @@ const Reports = () => {
   };
 
   const handleGenerateReport = async () => {
-    if (reportType === 'pdf') {
-      await generatePdfReport();
-    } else {
-      await generateHtmlReport();
-    }
-  };
-
-  const generatePdfReport = async () => {
     if (!currentCompany?.id) {
       toast.error("No company selected");
       return;
@@ -221,214 +372,95 @@ const Reports = () => {
       return;
     }
 
-    // Validate FY date format (YYYY)
     const fyDateRegex = /^\d{4}$/;
     if (!fyDateRegex.test(fyDate)) {
       toast.error("Please use YYYY format for Financial Year");
       return;
     }
 
-    setIsGenerating(true);
+    // Create new task
+    const newTask: ReportTask = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      companyId: currentCompany.id,
+      reportType,
+      asOfDate,
+      fyDate,
+      status: 'pending',
+      progress: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    console.log('📝 Creating new report task:', newTask);
+
+    // Add to tasks
+    const updatedTasks = [newTask, ...tasks];
+    saveTasks(updatedTasks);
+
     setIsModalOpen(false);
     
-    try {
-      // Call backend API to generate PDF report with selected chapters and theme
-      const chaptersParam = selectedChapters.join(',');
-      const params = new URLSearchParams({
-        company_id: currentCompany?.id.toString(),
-        as_of_date: asOfDate,
-        fy_date: fyDate,
-        chapters: chaptersParam,
-        theme: selectedTheme,
-        heading_font: headingFont,
-        body_font: bodyFont,
-      });
+    // Start background generation immediately
+    setTimeout(() => {
+      generateReportInBackground(newTask);
+    }, 100);
+    
+    toast.info(`${reportType.toUpperCase()} report generation started. You can navigate away and come back later!`);
+    
+    // Reset form
+    setAsOfDate(currentDate);
+    setFyDate(currentYear.toString());
+  };
 
-      // Add custom colors if provided
-      if (customPrimaryColor) params.append('custom_primary_color', customPrimaryColor);
-      if (customAccentColor) params.append('custom_accent_color', customAccentColor);
+  const handleDownload = (task: ReportTask) => {
+    if (task.downloadUrl) {
+      const a = document.createElement('a');
+      a.href = task.downloadUrl;
+      a.download = `sustainability-report-${task.fyDate}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success('Report downloaded successfully');
+    }
+  };
 
-      const response = await fetch(
-        buildApiUrl(`/api/reports/generate?${params.toString()}`),
-        {
-          method: 'GET',
-        }
-      );
+  const handleViewHtml = (task: ReportTask) => {
+    if (task.htmlContent) {
+      setHtmlReportContent(task.htmlContent);
+      setShowHtmlReport(true);
+    }
+  };
 
-      if (response.ok) {
-        // Download the PDF
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `sustainability-report-${fyDate}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-        
-        toast.success(`PDF Report generated successfully for FY ${fyDate}!`);
-        
-        // Reset form
-        setAsOfDate("");
-        setFyDate("");
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate report' }));
-        throw new Error(errorData.detail || 'Failed to generate report');
+  const handleDeleteTask = (taskId: string) => {
+    const updatedTasks = tasks.filter(t => t.id !== taskId);
+    saveTasks(updatedTasks);
+    toast.success('Report removed from history');
+  };
+
+  const handleEdit = (task: ReportTask) => {
+    // Navigate to report editor with task data
+    navigate('/reports/editor', {
+      state: {
+        taskId: task.id,
+        reportType: task.reportType,
+        fyDate: task.fyDate,
+        asOfDate: task.asOfDate
       }
-    } catch (error) {
-      toast.error(`Failed to generate PDF report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      console.error("Error generating PDF report:", error);
-    } finally {
-      setIsGenerating(false);
-    }
+    });
   };
 
-  const generateHtmlReport = async () => {
-    if (!currentCompany?.id) {
-      toast.error("No company selected");
-      return;
-    }
-
-    // Validate date formats
-    const asOfDateRegex = /^\d{2}\/\d{2}\/\d{4}$/;
-    if (!asOfDateRegex.test(asOfDate)) {
-      toast.error("Please use DD/MM/YYYY format for As Of Date");
-      return;
-    }
-
-    // Validate FY date format (YYYY)
-    const fyDateRegex = /^\d{4}$/;
-    if (!fyDateRegex.test(fyDate)) {
-      toast.error("Please use YYYY format for Financial Year");
-      return;
-    }
-
-    setIsGeneratingHtml(true);
-    setIsModalOpen(false);
-
-    try {
-      // Call backend API to generate HTML report with selected chapters and theme
-      const chaptersParam = selectedChapters.join(',');
-      const params = new URLSearchParams({
-        company_id: currentCompany?.id.toString(),
-        as_of_date: asOfDate,
-        fy_date: fyDate,
-        chapters: chaptersParam,
-        theme: selectedTheme,
-        heading_font: headingFont,
-        body_font: bodyFont,
-      });
-
-      // Add custom colors if provided
-      if (customPrimaryColor) params.append('custom_primary_color', customPrimaryColor);
-      if (customAccentColor) params.append('custom_accent_color', customAccentColor);
-
-      const response = await fetch(
-        buildApiUrl(`/api/reports/generate-html?${params.toString()}`),
-        {
-          method: 'GET',
-        }
-      );
-
-      if (response.ok) {
-        // Display HTML report in dialog instead of popup
-        const htmlContent = await response.text();
-        setHtmlReportContent(htmlContent);
-        setShowHtmlReport(true);
-
-        // Auto-save to localStorage for editor
-        try {
-          const storageKey = `reports_generated_html_${currentCompany?.id}_${Date.now()}`;
-          const reportData = {
-            html: htmlContent,
-            config: {
-              asOfDate,
-              fyDate,
-              selectedTheme,
-              headingFont,
-              bodyFont,
-              selectedChapters
-            },
-            generatedAt: new Date().toISOString()
-          };
-          localStorage.setItem(storageKey, JSON.stringify(reportData));
-          console.log('Report auto-saved to localStorage:', storageKey);
-
-          // Reload saved reports list
-          loadSavedReports();
-        } catch (error) {
-          console.error('Failed to save report:', error);
-        }
-
-        toast.success(`HTML Report generated successfully for FY ${fyDate}!`);
-
-        // Reset form
-        setAsOfDate("");
-        setFyDate("");
-      } else {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate HTML report' }));
-        throw new Error(errorData.detail || 'Failed to generate HTML report');
-      }
-    } catch (error) {
-      toast.error(`Failed to generate HTML report: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      console.error("Error generating HTML report:", error);
-    } finally {
-      setIsGeneratingHtml(false);
+  const getTaskStatusBadge = (task: ReportTask) => {
+    switch (task.status) {
+      case 'pending':
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+      case 'generating':
+        return <Badge variant="default" className="bg-blue-500"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Generating {task.progress}%</Badge>;
+      case 'completed':
+        return <Badge variant="default" className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Ready</Badge>;
+      case 'failed':
+        return <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" />Failed</Badge>;
+      default:
+        return null;
     }
   };
-
-  const printToPdf = () => {
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      try {
-        // Trigger browser print dialog
-        iframeRef.current.contentWindow.print();
-
-        toast.info("Printing dialog opened. Select 'Save as PDF' to download.");
-      } catch (error) {
-        console.error("Error opening print dialog:", error);
-        toast.error("Failed to open print dialog. Please try using Ctrl/Cmd+P manually.");
-      }
-    }
-  };
-
-  const openInEditor = (html?: string) => {
-    // Store the HTML content in sessionStorage for the editor to retrieve
-    const htmlToOpen = html || htmlReportContent;
-    if (htmlToOpen) {
-      sessionStorage.setItem('editorImportHtml', htmlToOpen);
-      sessionStorage.setItem('editorImportSource', 'report');
-      sessionStorage.setItem('editorImportConfig', JSON.stringify({
-        asOfDate,
-        fyDate,
-        selectedTheme,
-        selectedChapters,
-        companyData: companyDetails
-      }));
-
-      // Close the dialog and navigate to editor
-      setShowHtmlReport(false);
-      navigate('/reports/editor');
-
-      toast.success("Report opened in editor. You can now customize it!");
-    }
-  };
-
-  const deleteSavedReport = (storageKey: string) => {
-    localStorage.removeItem(storageKey);
-    loadSavedReports(); // Reload the list
-    toast.success("Report deleted");
-  };
-
-  const openSavedReportInEditor = (report: any) => {
-    sessionStorage.setItem('editorImportHtml', report.html);
-    sessionStorage.setItem('editorImportSource', 'saved_report');
-    sessionStorage.setItem('editorImportConfig', JSON.stringify(report.config));
-
-    navigate('/reports/editor');
-    toast.success("Saved report opened in editor");
-  };
-
 
   return (
     <Layout>
@@ -500,7 +532,7 @@ const Reports = () => {
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-success" />
-                    Appendix - Performance Table
+                  Appendix - Performance Table
                 </li>
                 <li className="flex items-center gap-2">
                   <CheckCircle className="h-4 w-4 text-success" />
@@ -540,10 +572,9 @@ const Reports = () => {
                 </div>
                 <Button 
                   onClick={() => setIsModalOpen(true)}
-                  disabled={isGenerating || isGeneratingHtml}
-                  className="w-full sm:w-auto"
+                  className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
                 >
-                  {isGenerating || isGeneratingHtml ? "Generating Report..." : `Generate ${reportType.toUpperCase()} Report`}
+                  Generate {reportType.toUpperCase()} Report
                 </Button>
               </div>
             ) : (
@@ -551,11 +582,7 @@ const Reports = () => {
                 <p className="text-muted-foreground mb-2">
                   Complete your company information to generate reports
                 </p>
-                <Button 
-                  variant="outline" 
-                  disabled
-                  className="w-full sm:w-auto"
-                >
+                <Button variant="outline" disabled className="w-full sm:w-auto">
                   Generate Report
                 </Button>
               </div>
@@ -563,74 +590,113 @@ const Reports = () => {
           </CardContent>
         </Card>
 
-        {/* Saved Reports */}
-        {savedReports.length > 0 && (
-          <Card className="shadow-soft">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Saved Reports ({savedReports.length})
-              </CardTitle>
-              <CardDescription>
-                Your previously generated reports - click to edit or delete
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+        {/* Report History */}
+        <Card className="shadow-soft">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Report History
+            </CardTitle>
+            <CardDescription>
+              View and download previously generated reports
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {tasks.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No reports generated yet</p>
+              </div>
+            ) : (
               <div className="space-y-3">
-                {savedReports.map((report, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-secondary/50 transition-colors"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Globe className="h-4 w-4 text-green-600" />
-                        <span className="font-medium text-sm">
-                          {report.config?.fyDate || 'N/A'} - {report.config?.selectedTheme || 'Default'} Theme
-                        </span>
+                {tasks.map((task) => (
+                  <div key={task.id} className="border border-accent/10 rounded-lg p-4 hover:bg-accent/5 transition-colors">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h3 className="font-medium">
+                            {task.reportType === 'pdf' ? 'PDF' : 'HTML'} Report - FY {task.fyDate}
+                          </h3>
+                          {getTaskStatusBadge(task)}
+                        </div>
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <p>As of: {task.asOfDate}</p>
+                          <p>Created: {new Date(task.createdAt).toLocaleString()}</p>
+                          {task.error && (
+                            <p className="text-destructive">Error: {task.error}</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        Generated: {new Date(report.generatedAt).toLocaleString()} •
-                        Chapters: {report.config?.selectedChapters?.length || 0}
+                      <div className="flex items-center gap-2">
+                        {task.status === 'completed' && (
+                          <>
+                            {task.reportType === 'pdf' ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDownload(task)}
+                              >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleViewHtml(task)}
+                              >
+                                <Globe className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(task)}
+                            >
+                              <Edit className="h-4 w-4 mr-1" />
+                              Edit
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteTask(task.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openSavedReportInEditor(report)}
-                        className="flex items-center gap-1"
-                      >
-                        <Edit3 className="h-3 w-3" />
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => deleteSavedReport(report.storageKey)}
-                        className="flex items-center gap-1 text-red-500 hover:text-red-700"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        Delete
-                      </Button>
-                    </div>
+                    {task.status === 'generating' && (
+                      <div className="mt-3">
+                        <div className="w-full bg-secondary rounded-full h-2">
+                          <div 
+                            className="bg-accent h-2 rounded-full transition-all" 
+                            style={{ width: `${task.progress}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
         {/* Report Dates Modal */}
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Generate {reportType.toUpperCase()} Report</DialogTitle>
               <DialogDescription>
-                Choose the key dates and customize your {reportType === 'pdf' ? 'PDF' : 'HTML'} ESG report.
+                Choose the key dates for your {reportType === 'pdf' ? 'PDF' : 'HTML'} ESG report.
+                <br /><br />
+                <span className="text-sm text-accent">✨ The report will generate in the background. You can navigate away and come back later!</span>
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-5 py-4">
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="asOfDate">As Of Date (DD/MM/YYYY)</Label>
@@ -639,7 +705,6 @@ const Reports = () => {
                     placeholder="30/08/2025"
                     value={asOfDate}
                     onChange={(e) => setAsOfDate(e.target.value)}
-                    className="h-10"
                   />
                 </div>
                 <div className="space-y-2">
@@ -649,171 +714,20 @@ const Reports = () => {
                     placeholder="2025"
                     value={fyDate}
                     onChange={(e) => setFyDate(e.target.value)}
-                    className="h-10"
                   />
                 </div>
               </div>
-              <div className="text-xs text-muted-foreground bg-secondary/30 p-2 rounded">
+              <div className="text-sm text-muted-foreground">
                 <p><strong>As Of Date:</strong> Report publication date</p>
                 <p><strong>Financial Year:</strong> Main reporting year</p>
               </div>
-
-              {/* Chapter Selection */}
-              {availableChapters && (
-                <div className="space-y-3 border-t pt-4">
-                  <Label className="text-base font-semibold">Customize Report Content</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Select which chapters to include in your report
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto">
-                    {Object.entries(availableChapters.available_chapters).map(([id, name]) => (
-                      <div key={id} className="flex items-center space-x-2 p-2 rounded hover:bg-secondary/50">
-                        <input
-                          type="checkbox"
-                          id={id}
-                          checked={isChapterSelected(id)}
-                          onChange={() => toggleChapter(id)}
-                          className="w-4 h-4 rounded border-gray-300 flex-shrink-0"
-                        />
-                        <label
-                          htmlFor={id}
-                          className="text-sm cursor-pointer flex-1 truncate"
-                          title={name as string}
-                        >
-                          {name as string}
-                        </label>
-                        {availableChapters.default_chapters.includes(id) && (
-                          <Badge variant="secondary" className="text-xs flex-shrink-0">Default</Badge>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedChapters.length} of {Object.keys(availableChapters.available_chapters).length} chapters selected
-                  </p>
-                </div>
-              )}
-
-              {/* Theme Customization - Only for HTML reports */}
-              {reportType === 'html' && availableThemes && (
-                <div className="space-y-3 border-t pt-4">
-                  <Label className="text-base font-semibold">Customize Report Style</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Personalize your report's appearance
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Theme Selection */}
-                    <div className="space-y-1">
-                      <Label htmlFor="theme" className="text-sm">Theme</Label>
-                      <Select value={selectedTheme} onValueChange={setSelectedTheme}>
-                        <SelectTrigger id="theme" className="h-9">
-                          <SelectValue placeholder="Select theme" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.values(availableThemes.themes).map((theme: any) => (
-                            <SelectItem key={theme.id} value={theme.id}>
-                              <span className="mr-2">{theme.preview}</span>
-                              {theme.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Font Selection - Compact */}
-                    <div className="space-y-1">
-                      <Label htmlFor="headingFont" className="text-sm">Fonts</Label>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <Label htmlFor="headingFont" className="text-xs text-muted-foreground mb-1 block">标题 Heading</Label>
-                          <Select value={headingFont} onValueChange={setHeadingFont}>
-                            <SelectTrigger id="headingFont" className="h-9">
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(availableThemes.fonts).map(([fontId, font]: [string, any]) => (
-                                <SelectItem key={fontId} value={fontId}>
-                                  {font.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex-1">
-                          <Label htmlFor="bodyFont" className="text-xs text-muted-foreground mb-1 block">正文 Body</Label>
-                          <Select value={bodyFont} onValueChange={setBodyFont}>
-                            <SelectTrigger id="bodyFont" className="h-9">
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(availableThemes.fonts).map(([fontId, font]: [string, any]) => (
-                                <SelectItem key={fontId} value={fontId}>
-                                  {font.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Custom Colors - Compact */}
-                    <div className="space-y-1">
-                      <Label className="text-sm">Custom Colors</Label>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          <Label htmlFor="primaryColor" className="text-xs text-muted-foreground mb-1 block">主色 Primary</Label>
-                          <div className="flex items-center gap-1">
-                            <Input
-                              id="primaryColor"
-                              type="color"
-                              value={customPrimaryColor}
-                              onChange={(e) => setCustomPrimaryColor(e.target.value)}
-                              className="w-8 h-9 p-0.5 cursor-pointer rounded flex-shrink-0"
-                              title="Primary color - Main headings and borders"
-                            />
-                            <Input
-                              type="text"
-                              placeholder="#1e40af"
-                              value={customPrimaryColor}
-                              onChange={(e) => setCustomPrimaryColor(e.target.value)}
-                              className="flex-1 h-9 text-xs"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <Label htmlFor="accentColor" className="text-xs text-muted-foreground mb-1 block">强调色 Accent</Label>
-                          <div className="flex items-center gap-1">
-                            <Input
-                              id="accentColor"
-                              type="color"
-                              value={customAccentColor}
-                              onChange={(e) => setCustomAccentColor(e.target.value)}
-                              className="w-8 h-9 p-0.5 cursor-pointer rounded flex-shrink-0"
-                              title="Accent color - Highlights and progress bars"
-                            />
-                            <Input
-                              type="text"
-                              placeholder="#3b82f6"
-                              value={customAccentColor}
-                              onChange={(e) => setCustomAccentColor(e.target.value)}
-                              className="flex-1 h-9 text-xs"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleGenerateReport} disabled={loadingDetails || isGenerating || isGeneratingHtml}>
-                Generate Report
+              <Button onClick={handleGenerateReport} disabled={loadingDetails}>
+                Start Generation
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -823,64 +737,24 @@ const Reports = () => {
         <Dialog open={showHtmlReport} onOpenChange={setShowHtmlReport}>
           <DialogContent className="max-w-5xl h-[90vh] p-0">
             <div className="h-full flex flex-col">
-              <DialogHeader className="px-6 py-4 border-b flex flex-row items-center justify-between">
-                <div>
-                  <DialogTitle>ESG Sustainability Report</DialogTitle>
-                  <DialogDescription>
-                    Interactive HTML report preview
-                  </DialogDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={openInEditor}
-                    variant="default"
-                    size="sm"
-                    className="flex items-center gap-2"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                    Edit in Editor
-                  </Button>
-                  <Button
-                    onClick={printToPdf}
-                    variant="outline"
-                    size="sm"
-                    className="flex items-center gap-2"
-                  >
-                    <Printer className="h-4 w-4" />
-                    Download PDF
-                  </Button>
-                  <Button
-                    onClick={() => setShowHtmlReport(false)}
-                    variant="outline"
-                    size="sm"
-                  >
-                    Close
-                  </Button>
-                </div>
+              <DialogHeader className="px-6 py-4 border-b">
+                <DialogTitle>ESG Sustainability Report</DialogTitle>
+                <DialogDescription>
+                  Interactive HTML report preview
+                </DialogDescription>
               </DialogHeader>
               <div className="flex-1 overflow-auto">
                 {htmlReportContent && (
                   <iframe
-                    ref={iframeRef}
                     srcDoc={htmlReportContent}
                     className="w-full h-full border-0"
                     title="ESG Report"
                   />
                 )}
               </div>
-              <div className="px-6 py-3 border-t bg-secondary/30">
-                <p className="text-xs text-muted-foreground mb-2">
-                  💡 <strong>Tip:</strong> Click "Download PDF" and select "Save as PDF" in the print dialog.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  ⚠️ <strong>Important:</strong> Uncheck "Headers and Footers" (页眉和页脚) in the print settings to remove dates, page numbers, and URL from your PDF.
-                </p>
-              </div>
             </div>
           </DialogContent>
         </Dialog>
-
-
       </div>
     </Layout>
   );

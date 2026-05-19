@@ -14,6 +14,8 @@ import AI from "./pages/AI";
 import Admin from "./pages/Admin";
 import CompanyInfo from "./pages/CompanyInfo";
 import Contact from "./pages/Contact";
+import EmailBot from "./pages/EmailBot";
+import SurveyForm from "./pages/SurveyForm";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
@@ -36,7 +38,9 @@ const App = () => (
           <Route path="/ai" element={<ProtectedRoute><AI /></ProtectedRoute>} />
           <Route path="/company-info" element={<ProtectedRoute><CompanyInfo /></ProtectedRoute>} />
           <Route path="/contact" element={<ProtectedRoute><Contact /></ProtectedRoute>} />
+          <Route path="/email-bot" element={<ProtectedRoute><EmailBot /></ProtectedRoute>} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/survey/:campaignId" element={<SurveyForm />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Layout } from "@/components/Layout";
 import {
-  Eye, Download, Save, Undo, Redo, Type, Image, BarChart3,
-  Table, Text, Palette, Settings, Plus, Trash2, FolderOpen, Sparkles, ArrowLeft
+  Eye, Download, Save, Undo, Redo, Type, Image as ImageIcon, BarChart3,
+  Table, Text, Palette, Settings, Plus, Trash2, FolderOpen, Sparkles, ArrowLeft, FileText, Upload
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-api";
@@ -362,6 +362,7 @@ const ReportEditor = () => {
   const { getCurrentCompany } = useAuth();
   const currentCompany = getCurrentCompany();
   const navigate = useNavigate();
+  const location = useLocation();
   const [components, setComponents] = useState<ReportComponent[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
@@ -380,6 +381,13 @@ const ReportEditor = () => {
   const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const importedTaskIdRef = useRef<string | null>(null); // Track which task has been imported
+
+  // Logo state
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [showLogoUpload, setShowLogoUpload] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // Layout state
   const [layouts, setLayouts] = useState<any>({
@@ -400,18 +408,86 @@ const ReportEditor = () => {
       loadTemplates();
       loadCompanyData();
 
+      // Check if navigating from Reports page with a taskId
+      // If so, skip localStorage restore to load fresh report data
+      const isNavigatingFromReports = location.state?.taskId;
+
       // Check if HTML was imported from Reports page
       const importedHtml = sessionStorage.getItem('editorImportHtml');
       if (importedHtml) {
         parseAndImportHtml(importedHtml);
         // Clear the imported HTML from sessionStorage
         sessionStorage.removeItem('editorImportHtml');
-      } else {
-        // Try to restore from localStorage (auto-save)
+      } else if (!isNavigatingFromReports) {
+        // Only restore from localStorage if NOT navigating from Reports page
+        // This ensures fresh report data is loaded when clicking Edit from Reports page
         restoreFromStorage();
+      } else {
+        console.log('📝 Navigating from Reports page, skipping localStorage restore');
       }
     }
   }, [currentCompany?.id]);
+
+  // Load report from navigation state (when clicking Edit button from Reports page)
+  useEffect(() => {
+    if (location.state?.taskId) {
+      const currentTaskId = location.state.taskId;
+
+      // Only import if this is a different task than the one already imported
+      if (importedTaskIdRef.current === currentTaskId) {
+        console.log('⏭️ Skipping import, same task already loaded:', currentTaskId);
+        return;
+      }
+
+      console.log('📝 Loading report from navigation state:', location.state);
+
+      // Check if there are unsaved changes in current editor
+      if (hasUnsavedChanges && components.length > 0) {
+        console.log('⚠️ Has unsaved changes, prompting user...');
+        const shouldContinue = window.confirm(
+          'You have unsaved changes. Do you want to discard them and load the new report?'
+        );
+        if (!shouldContinue) {
+          console.log('❌ User cancelled, not loading new report');
+          return;
+        }
+      }
+
+      // Clear any localStorage draft for this company to ensure fresh report is loaded
+      const storageKey = `editor_draft_${currentCompany?.id}`;
+      localStorage.removeItem(storageKey);
+      console.log('🗑️ Cleared localStorage draft to load fresh report');
+
+      // Get the task data from localStorage
+      const REPORTS_STORAGE_KEY = 'esg_report_tasks';
+      const stored = localStorage.getItem(REPORTS_STORAGE_KEY);
+
+      if (stored) {
+        try {
+          const tasks = JSON.parse(stored);
+          const task = tasks.find((t: any) => t.id === currentTaskId);
+
+          if (task && task.htmlContent) {
+            console.log('✅ Found HTML content for task:', task.id);
+            // Reset state before importing new report
+            handleResetEditor();
+            // Import the HTML content
+            parseAndImportHtml(task.htmlContent);
+            setImportedFromReports(true);
+            // Record that we've imported this task
+            importedTaskIdRef.current = currentTaskId;
+            toast.success(`Loaded ${task.reportType.toUpperCase()} report for FY ${task.fyDate}`);
+          } else {
+            console.warn('⚠️ Task not found or no HTML content:', currentTaskId);
+            toast.error('Report content not found');
+          }
+        } catch (error) {
+          console.error('❌ Error loading report from localStorage:', error);
+          toast.error('Failed to load report');
+        }
+      }
+    }
+  }, [location.state, hasUnsavedChanges, components]); // Re-run when location.state changes
 
   // Auto-save components when they change
   useEffect(() => {
@@ -436,6 +512,41 @@ const ReportEditor = () => {
     };
   }, [components]);
 
+  // Handle logo upload
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Logo file size must be less than 5MB');
+      return;
+    }
+
+    setUploadingLogo(true);
+
+    try {
+      // Create a blob URL for preview (client-side only)
+      const objectUrl = URL.createObjectURL(file);
+      setLogoUrl(objectUrl);
+      setLogoPreview(objectUrl);
+
+      toast.success('Logo uploaded successfully!');
+      setShowLogoUpload(false);
+    } catch (error) {
+      console.error('Error uploading logo:', error);
+      toast.error('Failed to upload logo');
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   // Save to localStorage
   const saveToStorage = () => {
     if (!currentCompany?.id) return;
@@ -447,6 +558,7 @@ const ReportEditor = () => {
         theme,
         currentPage,
         importedFromReports,
+        logoUrl: logoUrl, // Save logo URL
         lastSaved: new Date().toISOString()
       };
       localStorage.setItem(storageKey, JSON.stringify(data));
@@ -470,6 +582,12 @@ const ReportEditor = () => {
         setComponents(data.components || []);
         setCurrentPage(data.currentPage || 1);
         setImportedFromReports(data.importedFromReports || false);
+
+        // Restore logo if exists
+        if (data.logoUrl) {
+          setLogoUrl(data.logoUrl);
+          setLogoPreview(data.logoUrl);
+        }
 
         if (data.lastSaved) {
           setLastSavedTime(new Date(data.lastSaved));
@@ -506,6 +624,41 @@ const ReportEditor = () => {
     } catch (error) {
       console.error('Failed to clear storage:', error);
     }
+  };
+
+  const createNewReport = () => {
+    if (!currentCompany?.id) return;
+
+    // Clear localStorage
+    const storageKey = `editor_draft_${currentCompany.id}`;
+    localStorage.removeItem(storageKey);
+
+    // Reset all state
+    setComponents([]);
+    setImportedFromReports(false);
+    setCurrentPage(1);
+    setLastSavedTime(null);
+    setHasUnsavedChanges(false);
+    setHistory([]);
+    setHistoryIndex(0);
+    importedTaskIdRef.current = null; // Reset imported task ID
+
+    toast.success('New blank report created');
+  };
+
+  // Reset editor state before loading new report
+  const handleResetEditor = () => {
+    console.log('🔄 Resetting editor state...');
+    setComponents([]);
+    setImportedFromReports(false);
+    setCurrentPage(1);
+    setLastSavedTime(null);
+    setHasUnsavedChanges(false);
+    setHistory([]);
+    setHistoryIndex(0);
+    setSelectedId(null);
+    setPreviewMode(false);
+    // Don't reset importedTaskIdRef here - it will be set when new report loads
   };
 
   // Pagination
@@ -561,6 +714,12 @@ const ReportEditor = () => {
   };
 
   const parseAndImportHtml = (htmlContent: string) => {
+    console.log('🔍 parseAndImportHtml received HTML length:', htmlContent.length);
+    console.log('🔍 HTML starts with:', htmlContent.substring(0, 200));
+    console.log('🔍 Has DOCTYPE:', htmlContent.includes('<!DOCTYPE'));
+    console.log('🔍 Has <html> tag:', htmlContent.includes('<html'));
+    console.log('🔍 Has <style> tag:', htmlContent.includes('<style'));
+
     // Create a temporary DOM element to parse HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -678,6 +837,14 @@ const ReportEditor = () => {
         content: 'Imported Report',
         style: { fontSize: '32px', fontWeight: 'bold', color: '#1e40af' }
       });
+    }
+
+    // Store the complete original HTML in the first component
+    if (importedComponents.length > 0) {
+      console.log('💾 Storing original HTML, length:', htmlContent.length);
+      console.log('💾 Original HTML starts with:', htmlContent.substring(0, 200));
+      importedComponents[0].originalHtml = htmlContent;
+      console.log('✓ Complete original HTML stored in first component');
     }
 
     // Set the imported components and flag with error handling
@@ -930,6 +1097,55 @@ const ReportEditor = () => {
     }
   };
 
+  // Get the original HTML if available (for imported reports), otherwise generate new HTML
+  const getDisplayHtml = () => {
+    // For imported reports, use the original complete HTML
+    if (importedFromReports && components.length > 0 && components[0].originalHtml) {
+      let html = components[0].originalHtml;
+      console.log('📄 Display HTML length:', html.length);
+      console.log('📄 HTML starts with:', html.substring(0, 100));
+      console.log('📄 Has <style> tag:', html.includes('<style>'));
+      console.log('📄 Has CSS colors:', html.includes('#1e40af') || html.includes('primary'));
+
+      // Replace logo if custom logo is uploaded
+      if (logoUrl) {
+        console.log('🔍 Attempting to replace logo, logoUrl:', logoUrl);
+
+        // Try multiple patterns to match the default logo with different attribute orders
+        const logoPatterns = [
+          // Pattern 1: src first, then class (with or without trailing /)
+          /<img[^>]*src=["'][^"']*Light%20background%20logo\.png[^"']*["'][^>]*class=["']cover-logo["'][^>]*>/gi,
+          // Pattern 2: class first, then src (with or without trailing /)
+          /<img[^>]*class=["']cover-logo["'][^>]*src=["'][^"']*Light%20background%20logo\.png[^"']*["'][^>]*>/gi,
+          // Pattern 3: Just match any img with cover-logo class containing the logo URL
+          /<img[^>]*class=["']cover-logo["'][^>]*src=["'][^"']*esg-frontend-zeta\.vercel\.app[^"']*["'][^>]*>/gi
+        ];
+
+        let replaced = false;
+        for (const pattern of logoPatterns) {
+          const match = html.match(pattern);
+          if (match) {
+            console.log('✅ Found logo pattern:', match[0]);
+            html = html.replace(pattern, `<img src="${logoUrl}" alt="Company Logo" class="cover-logo">`);
+            console.log('✅ Logo replaced successfully');
+            replaced = true;
+            break;
+          }
+        }
+
+        if (!replaced) {
+          console.log('⚠️ Logo replacement failed - no matching pattern found');
+          console.log('🔍 HTML contains cover-logo:', html.includes('cover-logo'));
+          console.log('🔍 HTML contains Light%20background%20logo.png:', html.includes('Light%20background%20logo.png'));
+        }
+      }
+
+      return html;
+    }
+    // Otherwise, generate HTML from components
+    return generateHtml();
+  };
+
   // Generate HTML from current state
   const generateHtml = () => {
     return `<!DOCTYPE html>
@@ -937,32 +1153,35 @@ const ReportEditor = () => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Custom ESG Report</title>
+    <title>ESG Sustainability Report</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
+        /* Scoped styles - only affect .report-preview-container */
+        .report-preview-container * { margin: 0; padding: 0; box-sizing: border-box; }
+        .report-preview-container {
             font-family: ${theme.font};
             background-color: ${theme.backgroundColor};
             color: #333;
             padding: 40px;
         }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .component { margin-bottom: 20px; }
-        .header { font-size: 32px; font-weight: bold; color: ${theme.primaryColor}; }
-        .title { font-size: 24px; font-weight: 600; color: ${theme.primaryColor}; }
-        .text { font-size: 16px; line-height: 1.6; color: #666; }
-        .chart { min-height: 300px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
-        .table { min-height: 200px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
-        .image { min-height: 200px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+        .report-preview-container .container { max-width: 1200px; margin: 0 auto; }
+        .report-preview-container .component { margin-bottom: 20px; }
+        .report-preview-container .header { font-size: 32px; font-weight: bold; color: ${theme.primaryColor}; }
+        .report-preview-container .title { font-size: 24px; font-weight: 600; color: ${theme.primaryColor}; }
+        .report-preview-container .text { font-size: 16px; line-height: 1.6; color: #666; }
+        .report-preview-container .chart { min-height: 300px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
+        .report-preview-container .table { min-height: 200px; background: #f8f9fa; border-radius: 8px; padding: 20px; }
+        .report-preview-container .image { min-height: 200px; background: #f3f4f6; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
     </style>
 </head>
 <body>
-    <div class="container">
-        ${components.map(comp => `
-            <div class="component ${comp.type}">
-                ${renderComponentContent(comp)}
-            </div>
-        `).join('')}
+    <div class="report-preview-container">
+        <div class="container">
+            ${components.map(comp => `
+                <div class="component ${comp.type}">
+                    ${renderComponentContent(comp)}
+                </div>
+            `).join('')}
+        </div>
     </div>
 </body>
 </html>`;
@@ -1213,8 +1432,12 @@ const ReportEditor = () => {
             )}
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
-            <Button variant="outline" onClick={clearStorage} disabled={!lastSavedTime} title="Clear draft">
-              <Trash2 className="h-4 w-4" />
+            <Button variant="outline" onClick={createNewReport}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Report
+            </Button>
+            <Button variant="outline" onClick={saveToStorage} title="Quick save (Ctrl+S)">
+              <Save className="h-4 w-4" />
             </Button>
             <Button variant="outline" onClick={undo} disabled={historyIndex <= 0}>
               <Undo className="h-4 w-4" />
@@ -1238,431 +1461,167 @@ const ReportEditor = () => {
               <Download className="h-4 w-4 mr-2" />
               PDF
             </Button>
-            <Button onClick={saveToStorage}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Now
+            <Button
+              variant="outline"
+              onClick={() => setShowLogoUpload(true)}
+              className="flex items-center gap-2"
+              title="Upload company logo for report cover page"
+            >
+              <Upload className="h-4 w-4" />
+              {logoUrl ? "Update Logo" : "Upload Logo"}
             </Button>
           </div>
         </div>
 
-        {!previewMode && (
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Left Panel - Components */}
-            <Card className="lg:col-span-1">
-              <CardHeader>
-                <CardTitle className="text-lg">Components</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Company Data Section */}
-                {companyData && (
-                  <div className="space-y-2">
-                    <Label className="text-sm flex items-center gap-2">
-                      <Sparkles className="h-4 w-4" />
-                      Company Data
-                    </Label>
-                    <div className="grid grid-cols-1 gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => insertCompanyData('company_name')}
-                        className="justify-start"
-                      >
-                        <Text className="h-4 w-4 mr-2" />
-                        Company Name
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => insertCompanyData('emissions_summary')}
-                        className="justify-start"
-                      >
-                        <BarChart3 className="h-4 w-4 mr-2" />
-                        Emissions Chart
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => insertCompanyData('sustainability_targets')}
-                        className="justify-start"
-                      >
-                        <Table className="h-4 w-4 mr-2" />
-                        Targets Table
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                <div className="border-t pt-4">
-                  <Label className="text-sm mb-2 block">Basic Components</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.header)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <Type className="h-6 w-6" />
-                      <span className="text-xs">Header</span>
+        {/* Report View - Display imported or generated report */}
+        {/* Edit/Preview Mode - Always show, editable based on mode */}
+        <Card>
+          <CardContent className="p-8">
+            {components.length === 0 ? (
+              // Empty state
+              <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
+                <FileText className="h-16 w-16 text-gray-300 mb-4" />
+                <h3 className="text-xl font-semibold text-gray-700 mb-2">No Report Content</h3>
+                <p className="text-gray-500 mb-6 max-w-md">
+                  {importedFromReports
+                    ? 'The imported report has no content. Try generating a new report from the Reports page.'
+                    : 'Start by generating a report from the Reports page, or create a new blank report.'}
+                </p>
+                <div className="flex gap-3">
+                  <Button onClick={() => navigate('/reports')}>
+                    <FolderOpen className="h-4 w-4 mr-2" />
+                    Go to Reports
+                  </Button>
+                  {!importedFromReports && (
+                    <Button variant="outline" onClick={createNewReport}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Blank Report
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.title)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <Text className="h-6 w-6" />
-                      <span className="text-xs">Title</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.paragraph)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <Type className="h-6 w-6" />
-                      <span className="text-xs">Text</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.chart)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <BarChart3 className="h-6 w-6" />
-                      <span className="text-xs">Chart</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.table)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <Table className="h-6 w-6" />
-                      <span className="text-xs">Table</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.image)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <Image className="h-6 w-6" />
-                      <span className="text-xs">Image</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addComponent(COMPONENT_TEMPLATES.html)}
-                      className="h-20 flex flex-col gap-1"
-                    >
-                      <Type className="h-6 w-6" />
-                      <span className="text-xs">HTML</span>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Right Panel - Properties */}
-            <Card className="lg:col-span-1">
-              <CardHeader>
-                <CardTitle className="text-lg">Properties</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {selectedId ? (
-                  <Tabs defaultValue="content" className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="content">Content</TabsTrigger>
-                      <TabsTrigger value="style">Style</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="content" className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Content</Label>
-                        <Input
-                          value={components.find(c => c.id === selectedId)?.content || ""}
-                          onChange={(e) => updateComponent(selectedId, { content: e.target.value })}
-                          placeholder="Enter content..."
-                        />
-                      </div>
-
-                      {/* Table data editor */}
-                      {components.find(c => c.id === selectedId)?.type === 'table' && (
-                        <div className="space-y-3 border-t pt-4">
-                          <Label className="text-sm font-medium">Table Data</Label>
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <Label className="text-xs w-20">Headers</Label>
-                              <Input
-                                value={(() => {
-                                  const comp = components.find(c => c.id === selectedId);
-                                  if (comp?.data?.headers) {
-                                    return comp.data.headers.join(', ');
-                                  }
-                                  return 'Category, Value, Unit';
-                                })()}
-                                onChange={(e) => {
-                                  const headers = e.target.value.split(',').map(h => h.trim());
-                                  const comp = components.find(c => c.id === selectedId);
-                                  const currentData = comp?.data || {
-                                    headers: ['Category', 'Value', 'Unit'],
-                                    rows: [
-                                      ['Total Emissions', '1,234', 'tCO₂e'],
-                                      ['Revenue', '5.6', 'M HKD'],
-                                      ['Intensity', '0.22', 'tCO₂e/M HKD']
-                                    ]
-                                  };
-                                  updateComponent(selectedId, {
-                                    data: {
-                                      ...currentData,
-                                      headers
-                                    }
-                                  });
-                                }}
-                                placeholder="Category, Value, Unit"
-                                className="text-sm"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Rows (one per line, comma-separated)</Label>
-                              <textarea
-                                value={(() => {
-                                  const comp = components.find(c => c.id === selectedId);
-                                  if (comp?.data?.rows) {
-                                    return comp.data.rows.map((row: string[]) => row.join(', ')).join('\n');
-                                  }
-                                  return `Total Emissions, 1,234, tCO₂e\nRevenue, 5.6, M HKD\nIntensity, 0.22, tCO₂e/M HKD`;
-                                })()}
-                                onChange={(e) => {
-                                  const rows = e.target.value.split('\n')
-                                    .filter(line => line.trim())
-                                    .map(line => line.split(',').map(cell => cell.trim()));
-                                  const comp = components.find(c => c.id === selectedId);
-                                  const currentData = comp?.data || {
-                                    headers: ['Category', 'Value', 'Unit'],
-                                    rows: []
-                                  };
-                                  updateComponent(selectedId, {
-                                    data: {
-                                      ...currentData,
-                                      rows
-                                    }
-                                  });
-                                }}
-                                placeholder="Row 1 data, value, unit"
-                                className="w-full h-24 px-2 py-1 text-xs border rounded-md resize-none"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Chart data editor */}
-                      {components.find(c => c.id === selectedId)?.type === 'chart' && (
-                        <div className="space-y-3 border-t pt-4">
-                          <Label className="text-sm font-medium">Chart Data</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Chart displays example emissions data. Customize the chart title above.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* HTML content editor */}
-                      {components.find(c => c.id === selectedId)?.type === 'html' && (
-                        <div className="space-y-3 border-t pt-4">
-                          <Label className="text-sm font-medium">HTML Content</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Edit the HTML content below. Double-click the component in canvas to edit directly.
-                          </p>
-                          <textarea
-                            value={components.find(c => c.id === selectedId)?.htmlContent || ''}
-                            onChange={(e) => updateComponent(selectedId, { htmlContent: e.target.value })}
-                            placeholder="Enter HTML code..."
-                            className="w-full h-32 px-2 py-1 text-xs font-mono border rounded-md resize-none"
-                            spellCheck={false}
-                          />
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="style" className="space-y-4">
-                      <div className="space-y-2">
-                        <Label>Font Size</Label>
-                        <Select
-                          value={components.find(c => c.id === selectedId)?.style?.fontSize?.replace('px', '') || "16"}
-                          onValueChange={(value) => updateComponent(selectedId, {
-                            style: {
-                              ...components.find(c => c.id === selectedId)?.style,
-                              fontSize: `${value}px`
-                            }
-                          })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Size" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="14">Small</SelectItem>
-                            <SelectItem value="16">Normal</SelectItem>
-                            <SelectItem value="18">Medium</SelectItem>
-                            <SelectItem value="24">Large</SelectItem>
-                            <SelectItem value="32">XLarge</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Color</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            type="color"
-                            value={components.find(c => c.id === selectedId)?.style?.color || "#000000"}
-                            onChange={(e) => updateComponent(selectedId, {
-                              style: {
-                                ...components.find(c => c.id === selectedId)?.style,
-                                color: e.target.value
-                              }
-                            })}
-                            className="w-12 h-10"
-                          />
-                          <Input
-                            type="text"
-                            value={components.find(c => c.id === selectedId)?.style?.color || "#000000"}
-                            onChange={(e) => updateComponent(selectedId, {
-                              style: {
-                                ...components.find(c => c.id === selectedId)?.style,
-                                color: e.target.value
-                              }
-                            })}
-                            className="flex-1"
-                          />
-                        </div>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    Select a component to edit its properties
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Center Panel - Canvas */}
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle className="text-lg">Canvas</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Page {currentPage} of {totalPages || 1} • {currentComponents.length} components on this page
-                    </p>
-                  </div>
-                  {totalPages > 1 && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={prevPage}
-                        disabled={currentPage === 1}
-                      >
-                        ← Previous
-                      </Button>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                          let pageNum;
-                          if (totalPages <= 5) {
-                            pageNum = i + 1;
-                          } else if (currentPage <= 3) {
-                            pageNum = i + 1;
-                          } else if (currentPage >= totalPages - 2) {
-                            pageNum = totalPages - 4 + i;
-                          } else {
-                            pageNum = currentPage - 2 + i;
-                          }
-
-                          return (
-                            <Button
-                              key={pageNum}
-                              variant={currentPage === pageNum ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => goToPage(pageNum)}
-                              className="w-8 h-8 p-0"
-                            >
-                              {pageNum}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={nextPage}
-                        disabled={currentPage === totalPages}
-                      >
-                        Next →
-                      </Button>
-                    </div>
                   )}
                 </div>
-              </CardHeader>
-              <CardContent>
-                {components.length === 0 ? (
-                  <div className="text-center py-16 text-muted-foreground">
-                    <Plus className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="mb-2">No components yet</p>
-                    <p className="text-sm">Add components from the left panel to start building your report</p>
-                  </div>
-                ) : (
-                  <DndContext
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}
-                  >
-                    <ResponsiveGridLayout
-                      className="layout"
-                      layouts={{
-                        lg: layouts.lg.filter((layout: any) =>
-                          currentComponents.some((comp) => comp.id === layout.i)
-                        )
-                      }}
-                      onLayoutChange={handleLayoutChange}
-                      isDraggable={!previewMode}
-                      isResizable={!previewMode}
-                      useCSSTransform={true}
-                    >
-                      {currentComponents.map((comp) => (
-                        <div
-                          key={comp.id}
-                          onClick={() => setSelectedId(comp.id)}
-                          className={`bg-white rounded-lg shadow-sm p-4 border cursor-pointer transition-all ${
-                            selectedId === comp.id
-                              ? 'border-blue-500 ring-2 ring-blue-200'
-                              : 'border-gray-200 hover:border-blue-300'
-                          }`}
-                        >
-                          {renderComponentPreview(comp)}
-                        </div>
-                      ))}
-                    </ResponsiveGridLayout>
-                  </DndContext>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Preview Mode */}
-        {previewMode && (
-          <Card>
-            <CardContent className="p-8">
+              </div>
+            ) : previewMode ? (
+              <iframe
+                srcDoc={getDisplayHtml()}
+                className="w-full h-full border-0"
+                style={{ minHeight: '800px' }}
+                title="ESG Report Preview"
+              />
+            ) : (
               <div
+                contentEditable={true}
+                suppressContentEditableWarning
+                className="min-h-[400px] outline-none html-renderer-container"
+                onBlur={(e) => {
+                  if (components.length > 0 && importedFromReports) {
+                    const newHtml = e.target.innerHTML;
+                    const updatedComponents = [...components];
+                    updatedComponents[0].originalHtml = newHtml;
+                    setComponents(updatedComponents);
+
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(newHtml, 'text/html');
+                    const container = doc.querySelector('.container') || doc.body;
+                    const elements = Array.from(container.children);
+
+                    elements.forEach((el, i) => {
+                      if (updatedComponents[i]) {
+                        updatedComponents[i].htmlContent = el.outerHTML;
+                      }
+                    });
+
+                    setComponents(updatedComponents);
+                    setHasUnsavedChanges(true);
+                  }
+                }}
                 dangerouslySetInnerHTML={{
-                  __html: generateHtml()
+                  __html: getDisplayHtml()
                 }}
               />
-            </CardContent>
-          </Card>
-        )}
+            )}
+            {!previewMode && (
+              <div className="mt-4 text-center text-sm text-muted-foreground">
+                <p>💡 Click any content to edit • Changes are auto-saved</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Logo Upload Dialog */}
+      <Dialog open={showLogoUpload} onOpenChange={setShowLogoUpload}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upload Company Logo</DialogTitle>
+            <DialogDescription>
+              Upload your company logo to display on the report cover page
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Logo Preview */}
+            <div className="flex items-center justify-center gap-4 p-6 border-2 border-dashed rounded-lg">
+              {logoPreview ? (
+                <img
+                  src={logoPreview}
+                  alt="Logo Preview"
+                  className="w-32 h-32 object-contain"
+                />
+              ) : (
+                <div className="text-center p-4">
+                  <ImageIcon className="h-12 w-12 mx-auto text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-500">No logo selected</p>
+                </div>
+              )}
+            </div>
+
+            {/* Upload Button */}
+            <div className="space-y-2">
+              <input
+                type="file"
+                id="logo-upload"
+                accept="image/png,image/jpeg,image/jpg"
+                onChange={handleLogoUpload}
+                disabled={uploadingLogo}
+                className="hidden"
+              />
+              <Label
+                htmlFor="logo-upload"
+                className={`flex items-center justify-center gap-2 w-full px-4 py-2 border rounded-md cursor-pointer transition-colors ${
+                  uploadingLogo
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-accent'
+                }`}
+              >
+                <Upload className="h-4 w-4" />
+                {uploadingLogo ? 'Uploading...' : 'Choose Logo Image'}
+              </Label>
+              <p className="text-xs text-muted-foreground text-center">
+                Recommended: PNG or JPG, max 5MB
+              </p>
+            </div>
+
+            {/* Current Logo Actions */}
+            {logoUrl && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setLogoUrl(null);
+                    setLogoPreview(null);
+                    toast.success('Logo removed');
+                  }}
+                >
+                  Remove Logo
+                </Button>
+                <Button onClick={() => setShowLogoUpload(false)}>
+                  Done
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Template Management Dialog */}
       <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
