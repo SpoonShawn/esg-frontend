@@ -1,5 +1,5 @@
 // API Configuration
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? 'https://esg-backend-one.vercel.app' : 'http://localhost:8000');
 
 // Utility function to build API URLs
 export const buildApiUrl = (endpoint: string): string => {

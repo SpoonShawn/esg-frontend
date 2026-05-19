@@ -24,7 +24,7 @@ import {
   Brain, ChevronDown, ChevronUp,
 } from "lucide-react";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (window.location.hostname.includes('vercel.app') ? 'https://esg-backend-one.vercel.app' : 'http://localhost:8000');
 
 async function apiCall(url: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE_URL}${url}`, {
