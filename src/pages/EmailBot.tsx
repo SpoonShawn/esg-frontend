@@ -65,6 +65,16 @@ export default function EmailBot() {
   const company = getCurrentCompany();
   const companyId = company?.id;
 
+  if (!companyId) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-muted-foreground">Please log in to use Email Bot.</p>
+        </div>
+      </Layout>
+    );
+  }
+
   const [activeTab, setActiveTab] = useState("contacts");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
