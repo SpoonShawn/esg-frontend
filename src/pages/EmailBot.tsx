@@ -21,7 +21,7 @@ import {
 import {
   Mail, Send, Users, BarChart3, FileText, Plus, Trash2,
   Eye, RefreshCw, Loader2, CheckCircle2, Clock, AlertCircle,
-  Brain, ChevronDown, ChevronUp,
+  Brain, ChevronDown, ChevronUp, MessageSquare,
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (window.location.hostname.includes('vercel.app') ? 'https://esg-backend-one.vercel.app' : 'http://localhost:8000');
@@ -321,7 +321,7 @@ export default function EmailBot() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
-              <Bot className="h-8 w-8 text-blue-600" /> Email Bot
+              <MessageSquare className="h-8 w-8 text-blue-600" /> Email Bot
             </h1>
             <p className="text-muted-foreground mt-1">
               Automate ESG data collection via email surveys
